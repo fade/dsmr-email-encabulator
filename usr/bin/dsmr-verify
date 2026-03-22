@@ -1,0 +1,219 @@
+#!/bin/bash
+# dsmr-verify.sh — end-to-end verification of the DSMR qmail/vpopmail/dovecot stack
+# Run as a non-root user with sudo access on the Debian 13 Trixie VM.
+set -euo pipefail
+
+PASS=0
+FAIL=0
+
+green='\033[0;32m'
+red='\033[0;31m'
+reset='\033[0m'
+
+pass() { echo -e "${green}PASS${reset} $1"; PASS=$((PASS+1)); }
+fail() { echo -e "${red}FAIL${reset} $1"; FAIL=$((FAIL+1)); }
+
+check() {
+    local label="$1"; shift
+    if "$@" >/dev/null 2>&1; then
+        pass "$label"
+    else
+        fail "$label"
+    fi
+}
+
+echo "=== DSMR Stack Verification ==="
+echo "Date: $(date)"
+echo
+
+# ── 1. Package installation ────────────────────────────────────────────────
+echo "--- Package installation ---"
+for pkg in qmail vpopmail dovecot-core dovecot-imapd dovecot-mysql dovecot-vpopmail; do
+    state=$(dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null || echo "??")
+    if [ "$state" = "ii " ]; then
+        pass "$pkg installed (ii)"
+    else
+        fail "$pkg not fully installed (state: $state)"
+    fi
+done
+echo
+
+# ── 2. Service health ──────────────────────────────────────────────────────
+echo "--- Service health ---"
+check "qmail svscan running"    pgrep -x svscan
+if ss -tlnp | grep -q ':25 '; then pass "qmail-smtpd listening (port 25)"; else fail "qmail-smtpd listening (port 25)"; fi
+check "dovecot active"          systemctl is-active --quiet dovecot
+if ss -tlnp | grep -q ':143 '; then pass "IMAP port 143 listening"; else fail "IMAP port 143 listening"; fi
+if ss -tlnp | grep -q ':993 '; then pass "IMAPS port 993 listening"; else fail "IMAPS port 993 listening"; fi
+echo
+
+# ── 3. MySQL connectivity and grants ──────────────────────────────────────
+echo "--- MySQL / vpopmail database ---"
+VPOP_MYSQL=/home/vpopmail/etc/vpopmail.mysql
+if [ -f "$VPOP_MYSQL" ]; then
+    pass "vpopmail.mysql exists"
+    db_line=$(sudo cat "$VPOP_MYSQL")
+    db_host=$(echo "$db_line" | cut -d'|' -f1)
+    db_user=$(echo "$db_line" | cut -d'|' -f3)
+    db_pass=$(echo "$db_line" | cut -d'|' -f4)
+    db_name=$(echo "$db_line" | cut -d'|' -f5)
+
+    if mysql -h "$db_host" -u "$db_user" -p"$db_pass" "$db_name" \
+             -e "SELECT COUNT(*) FROM vpopmail;" >/dev/null 2>&1; then
+        pass "MySQL SELECT on vpopmail table"
+    else
+        fail "MySQL SELECT on vpopmail table"
+    fi
+
+    # Test CREATE/DROP privilege (needed by vadddomain)
+    TEST_TABLE="dsmr_grant_test_$$"
+    if mysql -h "$db_host" -u "$db_user" -p"$db_pass" "$db_name" \
+             -e "CREATE TABLE $TEST_TABLE (id INT); DROP TABLE $TEST_TABLE;" >/dev/null 2>&1; then
+        pass "MySQL CREATE/DROP privilege (vpopmail user)"
+    else
+        fail "MySQL CREATE/DROP privilege (vpopmail user)"
+    fi
+else
+    fail "vpopmail.mysql missing"
+fi
+echo
+
+# ── 4. vpopmail domain and virtual user ───────────────────────────────────
+echo "--- vpopmail virtual user (test@example.com) ---"
+check "example.com domain exists" sudo /home/vpopmail/bin/vdominfo example.com
+check "test@example.com exists"   sudo /home/vpopmail/bin/vuserinfo test@example.com
+
+VTEST_DIR=$(sudo /home/vpopmail/bin/vuserinfo test@example.com 2>/dev/null \
+            | grep '^dir:' | awk '{print $2}')
+if [ -n "$VTEST_DIR" ] && sudo test -d "$VTEST_DIR/Maildir"; then
+    pass "test@example.com Maildir exists ($VTEST_DIR/Maildir)"
+else
+    fail "test@example.com Maildir missing (dir: $VTEST_DIR)"
+fi
+echo
+
+# ── 5. System user (marvin@example.com) ───────────────────────────────────
+echo "--- System user (marvin@example.com) ---"
+check "Unix user marvin exists"          id marvin
+check "marvin Maildir exists"            sudo test -d /home/marvin/Maildir/new
+check "marvin .qmail exists"             sudo test -f /home/marvin/.qmail
+check "system-passwd has marvin entry"   sudo grep -q '^marvin:' /etc/dovecot/system-passwd
+check "users/assign has example.com-marvin" grep -q '^=example.com-marvin:' /var/lib/qmail/users/assign
+echo
+
+# ── 6. dovecot generated files ─────────────────────────────────────────────
+echo "--- dovecot generated files ---"
+check "dovecot-vpopmail-sql.conf.ext exists" sudo test -f /etc/dovecot/dovecot-vpopmail-sql.conf.ext
+if sudo stat -c '%a %G' /etc/dovecot/dovecot-vpopmail-sql.conf.ext 2>/dev/null | grep -q '^640 dovecot'; then
+    pass "dovecot-vpopmail-sql.conf.ext readable by dovecot (640 root:dovecot)"
+else
+    fail "dovecot-vpopmail-sql.conf.ext readable by dovecot (640 root:dovecot)"
+fi
+check "system-passwd exists"           sudo test -f /etc/dovecot/system-passwd
+check "dovecot TLS cert exists"        sudo test -f /etc/dovecot/private/dovecot.pem
+check "dovecot TLS key exists"         sudo test -f /etc/dovecot/private/dovecot.key
+echo
+
+# ── 7. doveadm auth test ──────────────────────────────────────────────────
+echo "--- dovecot authentication ---"
+if sudo doveadm auth test test@example.com testpass123 2>&1 | grep -q 'auth succeeded'; then
+    pass "doveadm auth test@example.com (vpopmail SQL)"
+else
+    fail "doveadm auth test@example.com (vpopmail SQL)"
+    sudo doveadm auth test test@example.com testpass123 2>&1 | sed 's/^/  /'
+fi
+
+if sudo doveadm auth test marvin@example.com marvinpass 2>&1 | grep -q 'auth succeeded'; then
+    pass "doveadm auth marvin@example.com (passwd-file)"
+else
+    fail "doveadm auth marvin@example.com (passwd-file)"
+    sudo doveadm auth test marvin@example.com marvinpass 2>&1 | sed 's/^/  /'
+fi
+echo
+
+# ── 8. doveadm user lookup ────────────────────────────────────────────────
+echo "--- dovecot user lookup ---"
+if sudo doveadm user test@example.com 2>&1 | grep -q 'home'; then
+    pass "doveadm user test@example.com"
+    sudo doveadm user test@example.com 2>&1 | grep -E '(home|uid|gid)' | sed 's/^/  /'
+else
+    fail "doveadm user test@example.com"
+fi
+
+if sudo doveadm user marvin@example.com 2>&1 | grep -q 'home'; then
+    pass "doveadm user marvin@example.com"
+    sudo doveadm user marvin@example.com 2>&1 | grep -E '(home|uid|gid)' | sed 's/^/  /'
+else
+    fail "doveadm user marvin@example.com"
+fi
+echo
+
+# ── 9. IMAPS login (port 993) ─────────────────────────────────────────────
+echo "--- IMAPS login (port 993) ---"
+imap_test() {
+    local user="$1" pass="$2" label="$3"
+    local result
+    result=$(
+        (
+          printf 'a LOGIN %s %s\r\n' "$user" "$pass"
+          sleep 1
+          printf 'b SELECT INBOX\r\n'
+          sleep 1
+          printf 'c LOGOUT\r\n'
+          sleep 1
+        ) | openssl s_client -connect localhost:993 -quiet 2>/dev/null
+    )
+    if echo "$result" | grep -q '^a OK'; then
+        pass "$label LOGIN"
+    else
+        fail "$label LOGIN"
+        echo "$result" | grep -E '^[a-c] ' | sed 's/^/  /'
+    fi
+    if echo "$result" | grep -q '^b OK'; then
+        pass "$label SELECT INBOX"
+    else
+        fail "$label SELECT INBOX"
+        echo "$result" | grep -E '^(b |\\* )' | sed 's/^/  /'
+    fi
+}
+
+imap_test "test@example.com"   "testpass123"  "test@example.com"
+imap_test "marvin@example.com" "marvinpass"   "marvin@example.com"
+echo
+
+# ── 10. Mail delivery ─────────────────────────────────────────────────────
+echo "--- Mail delivery (qmail injection) ---"
+deliver_test() {
+    local to="$1" maildir="$2" label="$3"
+    local before after msgid
+    msgid="dsmr-verify-$$-$(date +%s)-${label//[^a-z]/}"
+    before=$(sudo find "$maildir/new" -maxdepth 1 -type f 2>/dev/null | wc -l)
+    printf 'From: verify@localhost\r\nTo: %s\r\nSubject: dsmr-verify %s\r\nMessage-ID: <%s>\r\n\r\ntest body\r\n' \
+        "$to" "$label" "$msgid" \
+        | sudo -u vpopmail /var/lib/qmail/bin/qmail-inject "$to" 2>&1
+    sleep 3
+    after=$(sudo find "$maildir/new" -maxdepth 1 -type f 2>/dev/null | wc -l)
+    if [ "$after" -gt "$before" ]; then
+        pass "$label delivery (new message count: $before → $after)"
+    else
+        fail "$label delivery (new message count: $before → $after)"
+        sudo tail -5 /var/log/qmail/current 2>/dev/null | sed 's/^/  /' || true
+    fi
+}
+
+VTEST_DIR=$(sudo /home/vpopmail/bin/vuserinfo test@example.com 2>/dev/null \
+            | grep '^dir:' | awk '{print $2}')
+deliver_test "test@example.com"   "${VTEST_DIR}/Maildir" "test@example.com"
+deliver_test "marvin@example.com" "/home/marvin/Maildir"  "marvin@example.com"
+echo
+
+# ── Summary ───────────────────────────────────────────────────────────────
+echo "=== Summary ==="
+echo -e "Passed: ${green}${PASS}${reset}  Failed: ${red}${FAIL}${reset}"
+if [ "$FAIL" -eq 0 ]; then
+    echo -e "${green}All checks passed.${reset}"
+    exit 0
+else
+    echo -e "${red}${FAIL} check(s) failed.${reset}"
+    exit 1
+fi

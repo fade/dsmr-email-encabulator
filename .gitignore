@@ -1,0 +1,9 @@
+# debhelper staging and build artifacts
+debian/dsmr-email-encabulator/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+*.buildinfo
+*.changes
+*.deb

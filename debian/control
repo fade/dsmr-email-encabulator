@@ -1,0 +1,32 @@
+Source: dsmr-email-encabulator
+Section: mail
+Priority: optional
+Maintainer: Brian O'Reilly <fade@deepsky.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: dsmr-email-encabulator
+Architecture: all
+Depends: ${misc:Depends},
+ fehqlibs-dev (>= 30),
+ ucspi-ssl (>= 0.13.07),
+ qmail-uids-gids (>= 1.06.3),
+ qmail (>= 1.06.3),
+ libsrs2 (>= 1.0.18),
+ vpopmail (>= 5.6.13),
+ dovecot-core,
+ dovecot-imapd,
+ dovecot-mysql,
+ dovecot-vpopmail (>= 2.4.1)
+Description: DSMR qmail/vpopmail/dovecot mail stack -- metapackage
+ One-shot installation target for the complete DSMR email infrastructure.
+ Installing this package pulls the entire qmail/vpopmail/dovecot stack in
+ correct dependency order.
+ .
+ This package carries only documentation:
+  - DEVLOG.org: development log and Sagredo vs. DSMR configuration comparison
+  - README.dsmr: per-package runtime documentation for each component
+  - dsmr-verify: end-to-end stack validation script
+ .
+ After installation, run dsmr-verify to confirm the stack is operational.

@@ -1,0 +1,17 @@
+dsmr-email-encabulator (1.0-2) trixie; urgency=low
+
+  * doc/DEVLOG.org: trim to stack comparison only; remove apt repository
+    design and deployment sections (infrastructure, not stack documentation).
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sun, 22 Mar 2026 00:00:00 +0000
+
+dsmr-email-encabulator (1.0-1) trixie; urgency=low
+
+  * Initial release. Metapackage for the DSMR qmail/vpopmail/dovecot stack.
+  * Depends on: fehqlibs-dev, ucspi-ssl, qmail-uids-gids, qmail, libsrs2,
+    vpopmail, dovecot-core, dovecot-imapd, dovecot-mysql, dovecot-vpopmail.
+  * Includes DEVLOG.org (development log and Sagredo vs. DSMR comparison),
+    per-package README.dsmr documentation, and the dsmr-verify validation
+    script.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sun, 22 Mar 2026 00:00:00 +0000

@@ -1,0 +1,78 @@
+#+TITLE: fehqlibs-dev — DSMR Package Documentation
+#+AUTHOR: Brian O'Reilly <fade@deepsky.com>
+#+DATE: 2026-03-22
+
+* Summary
+
+~fehqlibs-dev~ packages the fehQlibs static library collection (release 30) by
+Erwin Hoffman.  fehQlibs provides the low-level network, DNS, string, buffer,
+and socket primitives that ucspi-ssl depends on at build time.  The package
+installs to ~/usr/lib/fehqlibs/~, satisfying Debian Policy §9.1.2 by keeping
+all files under ~/usr~.
+
+| Field       | Value                              |
+|-------------+------------------------------------|
+| Source      | fehqlibs                           |
+| Binary      | fehqlibs-dev                       |
+| Version     | 30-1                               |
+| Architecture| any                                |
+| Install to  | ~/usr/lib/fehqlibs/~               |
+| Target      | Debian 13 Trixie                   |
+
+* Description
+
+fehQlibs is a djbware-derived utility library maintained by Erwin Hoffman at
+fehcom.de.  It bundles two static archives:
+
+- ~libqlibs.a~ (~qlibs.a~) — buffer, string, socket, byte, and general
+  utility routines used throughout the djb tool chain.
+- ~libdnsresolv.a~ (~dnsresolv.a~) — asynchronous, DNSSEC-aware DNS
+  resolution routines required by ucspi-ssl for certificate hostname
+  verification.
+
+The package builds these libraries from source and installs them to
+~/usr/lib/fehqlibs/~, with both the canonical ~libXXX.a~ names and the
+legacy ~XXX.a~ names (as symlinks) so that upstream build systems that
+reference either naming convention work without patching.
+
+Headers are installed to ~/usr/lib/fehqlibs/include/~.  Downstream packages
+point their ~conf-qlibs~ (or equivalent) at ~/usr/lib/fehqlibs~ at build time.
+There is no runtime component; this is a build-time dependency only.
+
+** Why not /usr/local?
+
+Earlier revisions installed to ~/usr/local/qlibs/~, which dpkg rejects under
+Policy §9.1.2 (~/usr/local~ is reserved for the local administrator).  Moving
+to ~/usr/lib/fehqlibs/~ fixes the lintian ~E: dir-in-usr-local~ violation and
+makes the path stable for downstream packages.
+
+* TL;DR Runtime Documentation
+
+fehqlibs is a *build-time-only* package.  Once installed there is nothing to
+run, configure, or administer.
+
+** Installing
+
+#+BEGIN_SRC sh
+sudo dpkg -i fehqlibs-dev_30-1_amd64.deb
+#+END_SRC
+
+Verify the installation:
+
+#+BEGIN_SRC sh
+ls /usr/lib/fehqlibs/
+# libqlibs.a  qlibs.a  libdnsresolv.a  dnsresolv.a  include/
+#+END_SRC
+
+** Building dependent packages
+
+Packages that use fehqlibs (e.g. ucspi-ssl) must point their ~conf-qlibs~
+file at ~/usr/lib/fehqlibs~ before running ~make~.  The ucspi-ssl package
+does this automatically via the ~debian-install-paths.patch~ quilt patch.
+
+** Rebuilding from source
+
+#+BEGIN_SRC sh
+cd fehQlibs-30
+dpkg-buildpackage -us -uc -b
+#+END_SRC

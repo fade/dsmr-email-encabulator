@@ -1,0 +1,263 @@
+#+TITLE: dovecot-vpopmail — DSMR Package Documentation
+#+AUTHOR: Brian O'Reilly <fade@deepsky.com>
+#+DATE: 2026-03-22
+
+* Summary
+
+~dovecot-vpopmail~ is a configuration-only package (no compiled binaries) that
+wires dovecot 2.4 into the DSMR qmail/vpopmail stack.  It installs conf.d
+snippets that authenticate IMAP users against the vpopmail MySQL database and
+serve their Maildirs.  TLS is required on all connections; the certificate is
+taken from (or shares its origin with) the qmail TLS certificate.
+
+| Field         | Value                                          |
+|---------------+------------------------------------------------|
+| Source        | dovecot-vpopmail                               |
+| Binary        | dovecot-vpopmail                               |
+| Version       | 2.4.1-1                                        |
+| Architecture  | all (config only)                              |
+| Conf snippets | ~/etc/dovecot/conf.d/~                         |
+| Generated     | ~/etc/dovecot/dovecot-vpopmail-sql.conf.ext~   |
+| TLS cert      | ~/etc/dovecot/private/dovecot.pem~ + ~.key~    |
+| Ports         | 143 (IMAP+STARTTLS), 993 (IMAPS)              |
+| Target        | Debian 13 Trixie                               |
+
+* Description
+
+Dovecot 2.4 removed the vpopmail passdb and checkpassword passdb drivers that
+were present in 2.3.  The only supported path for authenticating vpopmail
+virtual users is the SQL passdb driver querying the ~vpopmail~ MySQL table
+directly.
+
+This package provides that configuration.  It ships five conf.d snippets and
+a postinst that generates the MySQL connection block (with credentials) from
+the vpopmail credential file written by the vpopmail package.
+
+** Authentication flow
+
+1. IMAP client connects on port 993 (IMAPS) or 143 (IMAP+STARTTLS).
+2. Client sends LOGIN with ~user@domain~ and plaintext password (over TLS).
+3. ~05-vpopmail-auth.conf~ loads first (before ~10-auth.conf~), so the SQL
+   passdb is tried before the system PAM passdb.
+4. dovecot executes the ~password_query~ against the ~vpopmail~ MySQL table.
+5. The returned ~pw_passwd~ (~$6$...~ SHA-512 crypt hash) is verified against
+   the user-supplied password using ~default_password_scheme = SHA512-CRYPT~.
+6. On success the ~user_query~ returns ~pw_dir~ as the home directory.
+7. dovecot sets uid/gid to 89 (vpopmail:vchkpw) and opens
+   ~<pw_dir>/Maildir/~ as the user's INBOX.
+
+** INBOX and Maildir compatibility
+
+Dovecot 2.4 defaults to storing INBOX at ~<mail_path>/.INBOX/~, which is
+incompatible with qmail/vdelivermail which delivers to ~<pw_dir>/Maildir/new/~.
+This package sets ~mail_inbox_path = ~/Maildir~ so that dovecot's INBOX IS
+the Maildir root, matching qmail delivery.
+
+** Authentication flow — system users
+
+Unix system users (e.g. ~marvin~) can also retrieve mail via IMAP using
+~marvin@defaultdomain~ addressing.  The auth chain falls through from the SQL
+passdb (user not found in vpopmail table) to ~passdb passwd-file~, which reads
+~/etc/dovecot/system-passwd~ (owned ~root:dovecot 640~).
+
+The file uses standard ~passwd(5)~ format.  The password field *must* carry
+a ~{CRYPT}~ prefix; dovecot does not auto-detect crypt-style hashes:
+
+#+BEGIN_SRC
+marvin:{CRYPT}$6$...:1001:1002::/home/marvin:/bin/bash
+#+END_SRC
+
+~auth_username_format = %{user|username}~ strips the domain before the lookup
+so ~marvin@example.com~ finds the ~marvin~ entry.
+
+For qmail delivery, the user must also appear in ~/var/lib/qmail/users/assign~
+with an exact-match entry using the *virtualdomains-transformed* address (not
+the raw ~user@domain~ address):
+
+#+BEGIN_SRC
+=example.com-marvin:marvin:1001:1002:/home/marvin:::
+#+END_SRC
+
+(~example.com~ is in ~virtualdomains~, so qmail transforms ~marvin@example.com~
+to the local address ~example.com-marvin~ before the CDB lookup.)
+
+** Installed conf.d snippets
+
+| File                          | Load order | Purpose                              |
+|-------------------------------+------------+--------------------------------------|
+| ~05-vpopmail-auth.conf~       | before 10  | ~auth_mechanisms~; include SQL       |
+| ~vpopmail-auth-sql.conf.ext~  | via 05     | passdb/userdb: SQL + system-passwd   |
+| ~99-vpopmail-mail.conf~       | after all  | Maildir layout, uid/gid, INBOX       |
+| ~99-vpopmail-master.conf~     | after all  | auth socket permissions              |
+| ~99-vpopmail-ssl.conf~        | after all  | ~ssl = required~                     |
+
+** Generated files (not conffiles)
+
+| File                                         | Owner/Mode       | Purpose                |
+|----------------------------------------------+------------------+------------------------|
+| ~/etc/dovecot/dovecot-vpopmail-sql.conf.ext~ | root:dovecot 640 | MySQL connection block |
+| ~/etc/dovecot/system-passwd~                 | root:dovecot 640 | System user auth file  |
+| ~/etc/dovecot/private/dovecot.pem~           | root:dovecot 644 | TLS certificate        |
+| ~/etc/dovecot/private/dovecot.key~           | root:dovecot 600 | TLS private key        |
+
+* TL;DR Runtime Documentation
+
+** Installation
+
+Install in dependency order; vpopmail and its MySQL database must exist first:
+
+#+BEGIN_SRC sh
+sudo dpkg -i dovecot-core_*.deb dovecot-imapd_*.deb dovecot-mysql_*.deb
+sudo dpkg -i dovecot-vpopmail_2.4.1-1_all.deb
+#+END_SRC
+
+The postinst reads ~/home/vpopmail/etc/vpopmail.mysql~, generates the dovecot
+MySQL connection file, extracts the TLS certificate from
+~/etc/qmail/servercert.pem~, and reloads dovecot.
+
+** Service management
+
+#+BEGIN_SRC sh
+sudo systemctl start dovecot
+sudo systemctl stop dovecot
+sudo systemctl restart dovecot
+sudo systemctl status dovecot
+
+# Soft reload (re-reads config without disconnecting users)
+sudo doveadm reload
+#+END_SRC
+
+** Testing IMAP login
+
+#+BEGIN_SRC sh
+# IMAPS (port 993) — TLS from the start
+(echo 'a LOGIN user@example.com password'
+ sleep 1
+ echo 'b SELECT INBOX'
+ sleep 1
+ echo 'c LOGOUT') | openssl s_client -connect localhost:993 -quiet 2>&1 \
+   | grep -E '^[a-c] |^\* (OK|NO|BYE|EXISTS|UNSEEN)'
+#+END_SRC
+
+A successful login shows ~a OK [...] Logged in~ and SELECT INBOX shows
+~b OK [READ-WRITE] Select completed~.
+
+** Checking the MySQL connection
+
+#+BEGIN_SRC sh
+# View generated connection config (root only)
+sudo cat /etc/dovecot/dovecot-vpopmail-sql.conf.ext
+
+# Test the SQL query manually
+sudo mysql --user=root vpopmail \
+  -e "SELECT pw_name, pw_domain, pw_dir FROM vpopmail LIMIT 5;"
+#+END_SRC
+
+** Regenerating the SQL connection config
+
+If ~/home/vpopmail/etc/vpopmail.mysql~ is updated (e.g. after rotating
+the database password), regenerate the dovecot connection file by
+re-running the postinst configure action:
+
+#+BEGIN_SRC sh
+sudo rm /etc/dovecot/dovecot-vpopmail-sql.conf.ext
+sudo dpkg-reconfigure dovecot-vpopmail
+sudo doveadm reload
+#+END_SRC
+
+** Replacing the TLS certificate
+
+The postinst only creates the dovecot certificate if it does not already
+exist.  To replace it:
+
+#+BEGIN_SRC sh
+# Option A: re-extract from the qmail combined PEM
+sudo rm /etc/dovecot/private/dovecot.pem /etc/dovecot/private/dovecot.key
+sudo openssl x509 -in /etc/qmail/servercert.pem \
+  -out /etc/dovecot/private/dovecot.pem
+sudo openssl pkey -in /etc/qmail/servercert.pem \
+  -out /etc/dovecot/private/dovecot.key
+sudo chmod 644 /etc/dovecot/private/dovecot.pem
+sudo chmod 600 /etc/dovecot/private/dovecot.key
+sudo chown root:dovecot /etc/dovecot/private/dovecot.pem \
+                        /etc/dovecot/private/dovecot.key
+sudo doveadm reload
+
+# Option B: generate a fresh self-signed certificate
+sudo rm /etc/dovecot/private/dovecot.pem /etc/dovecot/private/dovecot.key
+sudo dpkg-reconfigure dovecot-vpopmail
+#+END_SRC
+
+** Viewing authentication logs
+
+#+BEGIN_SRC sh
+# All recent dovecot events
+sudo journalctl -u dovecot --no-pager -n 50
+
+# Auth failures only
+sudo journalctl -u dovecot --no-pager -n 100 \
+  | grep -E 'auth_failed|AUTHENTICATIONFAILED|sql.*mismatch'
+
+# Enable verbose auth logging temporarily
+echo 'auth_verbose = yes' | sudo tee /etc/dovecot/conf.d/99-debug.conf
+sudo doveadm reload
+# … test logins …
+sudo rm /etc/dovecot/conf.d/99-debug.conf
+sudo doveadm reload
+#+END_SRC
+
+** Adding a system user for IMAP access
+
+System users authenticate via ~/etc/dovecot/system-passwd~ (created empty by
+postinst, owned ~root:dovecot 640~).  Mail is delivered by qmail using the
+~users/assign~ exact-match entry.
+
+#+BEGIN_SRC sh
+# 1. Create the Unix user and their Maildir
+sudo useradd -m marvin
+sudo mkdir -p /home/marvin/Maildir/{new,cur,tmp}
+sudo chown -R marvin:marvin /home/marvin/Maildir
+echo './Maildir/' | sudo tee /home/marvin/.qmail
+sudo chown marvin:marvin /home/marvin/.qmail
+
+# 2. Generate a SHA-512 password hash and add to system-passwd
+HASH=$(openssl passwd -6 'thepassword')
+echo "marvin:{CRYPT}${HASH}:$(id -u marvin):$(id -g marvin)::/home/marvin:/bin/bash" \
+  | sudo tee -a /etc/dovecot/system-passwd
+sudo doveadm reload
+
+# 3. Route marvin@example.com to the system user in qmail users/assign
+#    (Insert BEFORE the +example.com- wildcard line; exact matches take priority)
+sudo sed -i "/^+example.com-/i =example.com-marvin:marvin:$(id -u marvin):$(id -g marvin):/home/marvin:::" \
+  /var/lib/qmail/users/assign
+sudo /var/lib/qmail/bin/qmail-newu
+
+# 4. Verify
+sudo doveadm auth test marvin@example.com thepassword
+sudo doveadm user marvin@example.com
+#+END_SRC
+
+** Listing all vpopmail IMAP users (doveadm)
+
+#+BEGIN_SRC sh
+sudo doveadm user '*'
+#+END_SRC
+
+** Checking a user's mailbox
+
+#+BEGIN_SRC sh
+sudo doveadm mailbox status -u user@example.com all INBOX
+sudo doveadm mailbox list -u user@example.com
+sudo doveadm user user@example.com
+# Shows: uid, gid, home, mail_path
+#+END_SRC
+
+** Rebuilding from source
+
+#+BEGIN_SRC sh
+cd dovecot-vpopmail-2.4.1
+dpkg-buildpackage -us -uc -b
+#+END_SRC
+
+No build dependencies beyond ~debhelper-compat~; this is a configuration-only
+package with no compiled code.

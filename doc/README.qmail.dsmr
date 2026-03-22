@@ -1,0 +1,220 @@
+#+TITLE: qmail — DSMR Package Documentation
+#+AUTHOR: Brian O'Reilly <fade@deepsky.com>
+#+DATE: 2026-03-22
+
+* Summary
+
+~qmail~ packages the sagredo-dev netqmail 1.06.3 distribution: a hardened,
+feature-extended rebuild of D.J. Bernstein's qmail MTA incorporating TLS,
+DKIM, SPF, SRS, DNSBL, chkuser, EAI (SMTPUTF8), SNI, and HELO DNS checking.
+The ~qmail-uids-gids~ companion package creates the required system accounts.
+Both are configured at install time via debconf and managed by daemontools
+supervise scripts.
+
+| Field         | Value                                         |
+|---------------+-----------------------------------------------|
+| Source        | netqmail                                      |
+| Binaries      | qmail, qmail-uids-gids                        |
+| Version       | 1.06.3-1                                      |
+| Architecture  | any (qmail), all (qmail-uids-gids)            |
+| Config dir    | ~/etc/qmail/~ (symlink → ~/var/lib/qmail/control/~) |
+| Mail queue    | ~/var/lib/qmail/queue/~                       |
+| Supervise     | ~/usr/lib/qmail/supervise/~                   |
+| Target        | Debian 13 Trixie                              |
+
+* Description
+
+This package is a Debian packaging of the sagredo-dev 1.06.3 patchset on top
+of the netqmail 1.06 source base.  Key additions over vanilla netqmail:
+
+| Patch          | Version    | Function                                     |
+|----------------+------------+----------------------------------------------|
+| TLS            | 20231230   | STARTTLS for SMTP and SMTPS                  |
+| DKIM           | 1.48       | RFC 6376 signing and verification            |
+| SPF            | rc5        | Sender Policy Framework checking            |
+| SRS            | —          | Sender Rewriting Scheme (forwarding)        |
+| chkuser        | 2.0.9      | Recipient verification at SMTP time          |
+| qmail-dnsbl    | —          | DNSBL rejection                              |
+| EAI/SMTPUTF8  | —          | RFC 6531 international addresses             |
+| helodnscheck   | —          | Forward-confirmed reverse DNS on HELO        |
+
+** Filesystem layout
+
+The package uses an FHS-compatible split: binaries under ~/usr~, runtime
+state under ~/var/lib/qmail/~, and configuration accessible at the
+traditional ~/etc/qmail/~ path.
+
+| Path                         | Contents                              |
+|------------------------------+---------------------------------------|
+| ~/usr/bin/~, ~/usr/sbin/~    | qmail binaries                        |
+| ~/var/lib/qmail/~            | runtime home (queue, boot, control, users) |
+| ~/etc/qmail/~                | symlink → ~/var/lib/qmail/control/~   |
+| ~/var/qmail/~                | compatibility symlink → ~/var/lib/qmail/~ |
+| ~/usr/lib/qmail/supervise/~  | supervise run scripts (source)        |
+| ~/etc/service/~              | active supervise entries (daemontools)|
+| ~/var/log/qmail/~            | multilog log directories              |
+
+** Services
+
+Three daemontools services are installed:
+
+| Service             | Port | Auth       | Purpose                   |
+|---------------------+------+------------+---------------------------|
+| ~qmail-send~        | —    | —          | Queue runner + local delivery |
+| ~qmail-smtpd~       | 25   | none (open)| Inbound SMTP reception    |
+| ~qmail-submission~  | 587  | vchkpw     | Authenticated submission  |
+
+** Legacy upgrade path
+
+The postinst detects a legacy ~/var/qmail/~ real directory and migrates
+control files, user assignments, and the mail queue to the new layout before
+replacing ~/var/qmail~ with a compatibility symlink.  Existing subdirectory
+symlinks inside ~/var/qmail/~ are preserved intact.
+
+* TL;DR Runtime Documentation
+
+** First-time installation
+
+Install in dependency order:
+
+#+BEGIN_SRC sh
+sudo dpkg -i qmail-uids-gids_1.06.3-1_all.deb
+sudo dpkg -i qmail_1.06.3-1_amd64.deb
+#+END_SRC
+
+Debconf will prompt for:
+- *Hostname* — the fully qualified domain name (e.g. ~gir.example.com~)
+- *Domain* — the primary mail domain (e.g. ~example.com~)
+
+Defaults are discovered from the system hostname.
+
+** Key configuration files
+
+All paths under ~/etc/qmail/~ (= ~/var/lib/qmail/control/~):
+
+| File                  | Purpose                                      |
+|-----------------------+----------------------------------------------|
+| ~me~                  | FQDN of this server                          |
+| ~locals~              | Locally-delivered domains (one per line)     |
+| ~rcpthosts~           | Accepted recipient domains                   |
+| ~defaultdomain~       | Domain appended to unqualified addresses     |
+| ~servercert.pem~      | TLS certificate + key (combined PEM, 10 yr) |
+| ~domainkeys/<dom>~    | DKIM private key directory                   |
+| ~dkimsignheader~      | Headers included in DKIM signature           |
+| ~filterargs~          | Arguments passed to spawn-filter             |
+| ~tcp.smtp~            | tcprules source for SMTP relay control       |
+| ~tcp.smtp.cdb~        | Compiled CDB relay rules (from tcp.smtp)     |
+| ~tcp.submission~      | tcprules source for submission relay         |
+
+** Adding a mail domain
+
+#+BEGIN_SRC sh
+# Append to rcpthosts and locals (or use vpopmail vadddomain)
+echo "newdomain.example" | sudo tee -a /etc/qmail/rcpthosts
+echo "newdomain.example" | sudo tee -a /etc/qmail/locals
+sudo svc -t /etc/service/qmail-send
+#+END_SRC
+
+** Relay control (tcp.smtp)
+
+Edit ~/etc/qmail/tcp.smtp~, then recompile:
+
+#+BEGIN_SRC sh
+# /etc/qmail/tcp.smtp format:
+# 127.:allow,RELAYCLIENT=""
+# 1.2.3.:allow,RELAYCLIENT=""
+# :allow
+
+sudo tcprules /etc/qmail/tcp.smtp.cdb /etc/qmail/tcp.smtp.tmp \
+  < /etc/qmail/tcp.smtp
+#+END_SRC
+
+** Service management (daemontools)
+
+#+BEGIN_SRC sh
+# Start / stop / restart a service
+sudo svc -u /etc/service/qmail-send        # start (up)
+sudo svc -d /etc/service/qmail-send        # stop (down)
+sudo svc -t /etc/service/qmail-send        # restart (send TERM)
+sudo svc -h /etc/service/qmail-send        # reload (send HUP)
+
+# Check status
+sudo svstat /etc/service/qmail-send
+sudo svstat /etc/service/qmail-smtpd
+sudo svstat /etc/service/qmail-submission
+#+END_SRC
+
+** Queue management
+
+#+BEGIN_SRC sh
+# Current queue size
+/var/lib/qmail/bin/qmail-qstat
+
+# Detailed queue listing
+/var/lib/qmail/bin/qmail-qread
+
+# Force immediate delivery attempt
+sudo svc -a /etc/service/qmail-send   # send ALRM to qmail-send
+#+END_SRC
+
+** Sending a test message
+
+#+BEGIN_SRC sh
+echo 'Subject: test' | /usr/lib/sendmail user@example.com
+# or
+echo 'Subject: test' | /var/lib/qmail/bin/qmail-inject user@example.com
+#+END_SRC
+
+** TLS certificate
+
+A self-signed 10-year certificate is generated at first install:
+
+#+BEGIN_SRC sh
+# Inspect the current certificate
+sudo openssl x509 -in /etc/qmail/servercert.pem -noout -subject -dates
+
+# Regenerate (replaces existing)
+sudo openssl req -new -x509 -days 3650 -nodes \
+  -out /etc/qmail/servercert.pem \
+  -keyout /tmp/key.pem \
+  -subj "/CN=$(cat /etc/qmail/me)"
+sudo cat /tmp/key.pem >> /etc/qmail/servercert.pem
+sudo rm /tmp/key.pem
+sudo chmod 640 /etc/qmail/servercert.pem
+sudo chgrp qmail /etc/qmail/servercert.pem
+sudo svc -t /etc/service/qmail-smtpd /etc/service/qmail-submission
+#+END_SRC
+
+** DKIM
+
+A 2048-bit RSA DKIM key is generated at first install.  Publish the public
+key as a DNS TXT record:
+
+#+BEGIN_SRC sh
+# Print the DNS record value
+SELECTOR=$(ls /etc/qmail/domainkeys/example.com/ | head -1)
+sudo cat /etc/qmail/domainkeys/example.com/${SELECTOR}/public
+
+# DNS TXT record name: <selector>._domainkey.example.com
+# Value: "v=DKIM1; k=rsa; p=<base64-public-key>"
+#+END_SRC
+
+To rotate the DKIM key:
+
+#+BEGIN_SRC sh
+sudo /usr/bin/dknewkey /etc/qmail/domainkeys/example.com/new-selector 2048
+# Update DNS, then edit /etc/qmail/filterargs to use the new selector
+sudo svc -t /etc/service/qmail-send
+#+END_SRC
+
+** Log viewing
+
+Logs are in ~/var/log/qmail/~ in multilog tai64n format:
+
+#+BEGIN_SRC sh
+# Follow the delivery log in human-readable form
+sudo tail -f /var/log/qmail/send/current | tai64nlocal
+
+# Recent SMTP log
+sudo cat /var/log/qmail/smtpd/current | tai64nlocal | tail -50
+#+END_SRC

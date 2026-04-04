@@ -7,3 +7,4 @@ debian/*.substvars
 *.buildinfo
 *.changes
 *.deb
+*.info

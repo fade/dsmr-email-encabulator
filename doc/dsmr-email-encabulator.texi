@@ -1,0 +1,1095 @@
+\input texinfo
+@c %**start of header
+@setfilename dsmr-email-encabulator.info
+@settitle DSMR Email Stack — Theory of Operations
+@documentencoding UTF-8
+@c %**end of header
+
+@dircategory Mail
+@direntry
+* DSMR: (dsmr-email-encabulator). DSMR qmail/vpopmail/dovecot mail stack.
+* DSMR qmail: (dsmr-email-encabulator)qmail. qmail MTA — DSMR configuration.
+* DSMR vpopmail: (dsmr-email-encabulator)vpopmail. vpopmail virtual domains.
+* DSMR dovecot: (dsmr-email-encabulator)dovecot-vpopmail. Dovecot IMAP configuration.
+* DSMR qmail-run: (dsmr-email-encabulator)dsmr-qmail-run. Service supervision.
+* DSMR ucspi-ssl: (dsmr-email-encabulator)ucspi-ssl. TLS library.
+* DSMR fehqlibs: (dsmr-email-encabulator)fehqlibs. DNS/network libraries.
+@end direntry
+
+@copying
+Copyright @copyright{} 2026 Brian O'Reilly @email{fade@@deepsky.com}
+
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3 or
+any later version published by the Free Software Foundation.
+@end copying
+
+@titlepage
+@title DSMR Email Stack
+@subtitle Theory of Operations
+@author Brian O'Reilly
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top DSMR Email Stack — Theory of Operations
+
+This manual describes the DSMR qmail/vpopmail/dovecot email stack:
+its architecture, mail flow, authentication model, and day-to-day
+operations.
+
+@insertcopying
+@end ifnottex
+
+@menu
+* Introduction::            What DSMR is and why it exists.
+* Architecture::            System components and their relationships.
+* Mail Flow::               How messages move through the system.
+* Authentication::          SMTP AUTH and IMAP credential verification.
+* Operations::              TL;DR guide to common administrative tasks.
+* qmail::                   qmail MTA — DSMR configuration.
+* vpopmail::                vpopmail virtual domain management.
+* dovecot-vpopmail::        Dovecot IMAP wired into the DSMR stack.
+* dsmr-qmail-run::          Service supervision and run scripts.
+* ucspi-ssl::               TLS library for djbware services.
+* fehqlibs::                DNS and network support libraries.
+* Concept Index::
+@end menu
+
+
+@c ============================================================
+@node Introduction
+@chapter Introduction
+
+DSMR is a Debian 13 (Trixie) packaging of the classic
+qmail/vpopmail/dovecot mail stack.  It assembles seven source packages
+into a coherent, reproducible email server installation suitable for
+hosting multiple virtual mail domains on a single machine.
+
+@section Design Philosophy
+
+@itemize
+@item
+@strong{djbware at the core.}  qmail is used as the MTA exactly as D.@:J.@:
+Bernstein designed it: a small-process pipeline architecture where each
+component runs under its own uid and communicates through the queue.
+The sagredo-dev patchset adds TLS, DKIM, SPF, SRS, and recipient
+checking without altering qmail's security model.
+
+@item
+@strong{Daemontools supervision.}  All qmail services run under
+daemontools @command{supervise}, started by @command{svscan}.  Services
+restart automatically on failure; logs are captured by @command{multilog}
+in tai64n format.
+
+@item
+@strong{PostgreSQL for virtual users.}  vpopmail is compiled with
+@option{--enable-auth-module=pgsql}.  All virtual domain user data
+(passwords, home directories, quotas) lives in a PostgreSQL database.
+Clear-text passwords are never stored.
+
+@item
+@strong{Dovecot 2.4 via SQL.}  Dovecot 2.4 removed its native vpopmail
+and checkpassword passdb drivers.  dovecot-vpopmail bridges this gap by
+querying the PostgreSQL vpopmail table directly via dovecot's SQL passdb
+driver.
+
+@item
+@strong{Debian packaging conventions.}  Binaries land under @file{/usr},
+runtime state under @file{/var/lib/qmail}, configuration is accessible
+at @file{/etc/qmail} (symlink).  Services, users, and groups are created
+by package postinst scripts; no manual setup steps are required for a
+fresh installation.
+@end itemize
+
+@section Package Inventory
+
+@multitable @columnfractions .30 .20 .50
+@headitem Package @tab Version @tab Role
+@item @code{qmail} @tab 1.06.3 @tab MTA: send, receive, queue, local delivery
+@item @code{qmail-uids-gids} @tab 1.06.3 @tab System users and groups for qmail
+@item @code{vpopmail} @tab 5.6.13 @tab Virtual domain and user management
+@item @code{vpopmail-dev} @tab 5.6.13 @tab Headers for building chkuser
+@item @code{dsmr-qmail-run} @tab 1.0 @tab Daemontools run scripts and service trees
+@item @code{dovecot-vpopmail} @tab 2.4.1 @tab Dovecot configuration for DSMR stack
+@item @code{ucspi-ssl} @tab 0.13.07 @tab TLS support for UCSPI services
+@item @code{fehqlibs-dev} @tab 30 @tab DNS/network libraries (build-time)
+@item @code{libsrs2} @tab 1.0.18 @tab Sender Rewriting Scheme library
+@item @code{dsmr-email-encabulator} @tab 1.0 @tab Metapackage + documentation
+@end multitable
+
+
+@c ============================================================
+@node Architecture
+@chapter Architecture
+
+@section System Diagram
+
+@example
+                     Internet
+                        |
+            +-----------+-----------+
+            |           |           |
+         MX/25       MX/25       Submission/587
+        (inbound)   (inbound)   (authenticated)
+            |                       |
+            +----------+------------+
+                       |
+              +--------+--------+
+              |   qmail-smtpd   |   (runs as vpopmail:vchkpw)
+              |   DNSBL, SPF,   |   Port 25: open reception
+              |   HELO check,   |   Port 587: SMTP AUTH via vchkpw
+              |   chkuser rcpt  |
+              +--------+--------+
+                       |
+               /etc/qmail/ (control files)
+               rcpthosts, virtualdomains
+                       |
+              +--------+--------+
+              |   qmail-queue   |   Atomically enqueues message
+              +--------+--------+
+                       |
+              +--------+--------+
+              |   qmail-send    |   Queue runner
+              |   (delivery     |   Reads queue, dispatches
+              |    scheduler)   |   local and remote workers
+              +----+-------+----+
+                   |       |
+           +-------+       +-------+
+           |                       |
+  +--------+--------+     +--------+--------+
+  |   qmail-local   |     |   qmail-remote  |
+  |  Local delivery |     |  Remote SMTP    |
+  +--------+--------+     |  (with TLS,     |
+           |              |   DKIM signing) |
+     virtualdomains       +----------------+
+     users/assign
+           |
+    +------+------+
+    |             |
+vpopmail       system
+ user           user
+    |             |
+vdelivermail   .qmail
+    |             |
+Maildir/       Maildir/
+(under         (under
+/home/         /home/
+vpopmail/      user/)
+domains/)
+           |           |
+           +-----------+
+                 |
+        +--------+--------+
+        |     Dovecot      |
+        |  IMAPS/993       |
+        |  IMAP+STARTTLS/  |
+        |  143             |
+        |  SQL passdb      |
+        |  (PostgreSQL)    |
+        +--------+--------+
+                 |
+          IMAP clients
+@end example
+
+@section Component Roles
+
+@table @strong
+@item qmail-smtpd
+Receives inbound SMTP connections on port 25 (open) and port 587
+(authenticated).  Applies DNSBL, SPF, and HELO-DNS checks.  Uses the
+chkuser patch to verify recipient existence against vpopmail before
+accepting the DATA phase.
+
+@item qmail-queue
+Atomically enqueues accepted messages to @file{/var/lib/qmail/queue/}.
+
+@item qmail-send
+The queue runner.  Reads new messages from the queue and dispatches
+them to @command{qmail-local} (local recipients) or @command{qmail-remote}
+(external recipients).
+
+@item qmail-local
+Delivers to local recipients.  Reads @file{/etc/qmail/virtualdomains} and
+@file{/var/lib/qmail/users/assign} to resolve virtual addresses to
+Unix users.  Executes @file{.qmail} delivery instructions.
+
+@item vdelivermail
+vpopmail's delivery agent.  Called by @file{.qmail-default} in each
+virtual domain directory; delivers into the appropriate user's
+@file{Maildir/}.
+
+@item qmail-remote
+Connects to external SMTP servers.  Applies TLS opportunistically and
+signs outbound messages with DKIM via @command{spawn-filter}.
+
+@item vchkpw
+vpopmail's authentication binary.  Setuid root, owned @code{root:vchkpw}.
+Called by the port-587 @command{qmail-smtpd} process to verify SMTP AUTH
+credentials against the PostgreSQL vpopmail table.
+
+@item Dovecot
+Provides IMAP (port 143, STARTTLS required) and IMAPS (port 993).
+Authenticates virtual users via SQL passdb against the PostgreSQL
+vpopmail table; authenticates Unix system users via
+@file{/etc/dovecot/system-passwd}.
+@end table
+
+@section Key File Locations
+
+@multitable @columnfractions .45 .55
+@headitem Path @tab Contents
+@item @file{/etc/qmail/} @tab qmail control files (symlink → @file{/var/lib/qmail/control/})
+@item @file{/var/lib/qmail/queue/} @tab Mail queue
+@item @file{/var/lib/qmail/users/assign} @tab Address-to-user routing table
+@item @file{/etc/qmail/virtualdomains} @tab Virtual domain routing
+@item @file{/etc/qmail/rcpthosts} @tab Accepted recipient domains
+@item @file{/etc/qmail/servercert.pem} @tab TLS certificate + private key (combined PEM)
+@item @file{/home/vpopmail/domains/} @tab Virtual domain mailboxes
+@item @file{/home/vpopmail/etc/vpopmail.pgsql} @tab PostgreSQL credentials (@code{host|port|user|pass|db})
+@item @file{/etc/dovecot/dovecot-vpopmail-sql.conf.ext} @tab Generated PostgreSQL connection block
+@item @file{/etc/dovecot/system-passwd} @tab System user IMAP credentials
+@item @file{/var/log/qmail/} @tab Multilog log directories
+@item @file{/etc/service/} @tab Active daemontools service symlinks
+@end multitable
+
+
+@c ============================================================
+@node Mail Flow
+@chapter Mail Flow
+
+@section Inbound SMTP (Port 25)
+
+@enumerate
+@item
+A remote MTA connects to port 25.  @command{tcpserver} accepts the
+connection and spawns @command{qmail-smtpd} running as
+@code{uid=vpopmail gid=vchkpw}.
+
+@item
+@command{qmail-smtpd} applies a 5-second greeting delay and drops
+connections that send data before the greeting (pre-greet drop).
+
+@item
+The @code{EHLO} command triggers HELO-DNS checking (forward-confirmed
+reverse DNS).  @code{RCPT TO} is checked against DNSBL blacklists.
+
+@item
+SPF is evaluated based on the sending IP and @code{MAIL FROM} domain.
+Behaviour is configurable via @file{/etc/qmail/spfbehavior} (default:
+log only).
+
+@item
+The chkuser patch verifies each @code{RCPT TO} recipient against the
+vpopmail PostgreSQL database @emph{before} accepting the message.
+Unknown recipients are rejected at SMTP time with a @code{553} response,
+eliminating backscatter.
+
+@item
+After @code{DATA}, qmail atomically writes the message to
+@file{/var/lib/qmail/queue/} via @command{qmail-queue}.
+
+@item
+@command{qmail-send} wakes, reads the queued message, and consults
+@file{/etc/qmail/virtualdomains}.  For a message to
+@email{user@@example.com} where @code{example.com:example.com} is in
+@file{virtualdomains}, qmail rewrites the recipient to the local address
+@code{example.com-user}.
+
+@item
+@command{qmail-lspawn} looks up @code{example.com-user} in
+@file{/var/lib/qmail/users/cdb}.  The wildcard entry
+@code{+example.com-:example.com:89:89:@dots{}} matches and routes
+delivery to @command{qmail-local} running as @code{uid=vpopmail}.
+
+@item
+@command{qmail-local} reads
+@file{/home/vpopmail/domains/example.com/.qmail-default}, which
+contains:
+
+@example
+| /home/vpopmail/bin/vdelivermail '' delete
+@end example
+
+@item
+@command{vdelivermail} looks up @code{user} in the vpopmail database,
+confirms the Maildir path (@file{/home/vpopmail/domains/example.com/user/Maildir/}),
+and writes the message to @file{Maildir/new/}.
+@end enumerate
+
+@section Outbound Submission (Port 587)
+
+@enumerate
+@item
+An email client connects to port 587 through an SSH tunnel or directly.
+@command{tcpserver} spawns @command{qmail-smtpd} with
+@env{SMTPAUTH=!} (authentication required).
+
+@item
+The server issues @code{EHLO} advertising @code{STARTTLS}.  The client
+initiates TLS using the certificate at @file{/etc/qmail/servercert.pem}
+(owned @code{root:vchkpw 640}).
+
+@item
+After the TLS handshake, @command{qmail-smtpd} re-advertises
+capabilities including @code{AUTH PLAIN LOGIN}.
+
+@item
+The client sends @code{AUTH PLAIN} or @code{AUTH LOGIN} with
+@code{user@@domain} and password.  @command{qmail-smtpd} forks
+@command{vchkpw}, which:
+
+@enumerate a
+@item
+Reads @file{/home/vpopmail/etc/vpopmail.pgsql} for PostgreSQL
+connection credentials.
+
+@item
+Queries @code{SELECT pw_passwd FROM vpopmail WHERE pw_name='user'
+AND pw_domain='domain'}.
+
+@item
+Verifies the supplied password against the stored SHA-512 crypt hash.
+
+@item
+On success, execs the next program (@command{/bin/true}), setting
+@env{RELAYCLIENT=""} which permits relaying.
+@end enumerate
+
+@item
+The client sends @code{MAIL FROM}, @code{RCPT TO} (any external
+address is now permitted due to @env{RELAYCLIENT}), and @code{DATA}.
+
+@item
+The message is queued via @command{qmail-queue}.
+
+@item
+@command{qmail-send} dispatches the message to @command{qmail-remote}.
+If @file{/etc/qmail/filterargs} exists, @command{spawn-filter} is
+invoked first to add a DKIM signature using the private key from
+@file{/etc/qmail/domainkeys/<domain>/}.
+
+@item
+@command{qmail-remote} resolves the destination domain's MX records,
+connects to the remote SMTP server, negotiates TLS if offered, and
+delivers the message.  SRS rewriting is applied if the message is a
+forward.
+@end enumerate
+
+@section System User Mail Delivery
+
+Unix system users (e.g., @code{fade}) receive mail at
+@email{fade@@hostname} via @command{qmail-local}, which reads
+@file{~fade/.qmail}.  A typical @file{.qmail} for Maildir delivery:
+
+@example
+./Maildir/
+@end example
+
+To receive at @email{fade@@example.com} (a virtual domain), add an
+exact-match entry to @file{/var/lib/qmail/users/assign} before any
+wildcard for that domain:
+
+@example
+=example.com-fade:fade:1000:1000:/home/fade:::
+@end example
+
+Then rebuild the CDB and restart qmail-send:
+
+@example
+sudo /var/lib/qmail/bin/qmail-newu
+sudo svc -t /etc/service/qmail-send
+@end example
+
+
+@c ============================================================
+@node Authentication
+@chapter Authentication Architecture
+
+@section SMTP Authentication (Port 587)
+
+@command{vchkpw} (@file{/home/vpopmail/bin/vchkpw}) is a
+@emph{checkpassword}-compatible program.  It is setuid root, owned
+@code{root:vchkpw}.  The @command{qmail-smtpd} process on port 587 runs
+as @code{uid=vpopmail gid=vchkpw} and can therefore execute vchkpw.
+
+Authentication flow:
+
+@example
+qmail-smtpd (port 587)
+    |
+    | fork + exec
+    v
+vchkpw
+    |
+    | read /home/vpopmail/etc/vpopmail.pgsql
+    | connect to PostgreSQL (host|port|user|pass|db)
+    | SELECT pw_passwd FROM vpopmail WHERE ...
+    | verify SHA-512 crypt hash
+    |
+    +-- success: exec /bin/true; RELAYCLIENT="" set
+    |
+    +-- failure: exit 1; SMTP AUTH fails
+@end example
+
+The credentials file @file{/home/vpopmail/etc/vpopmail.pgsql} (owned
+@code{root:vchkpw 640}) uses pipe-separated fields:
+
+@example
+host|port|user|password|database
+localhost|5432|vpopmail|<password>|vpopmail
+@end example
+
+@section IMAP Authentication — Virtual Users
+
+Dovecot authenticates virtual users (@email{user@@domain}) via the SQL
+passdb driver, which queries the PostgreSQL vpopmail table using
+credentials from @file{/etc/dovecot/dovecot-vpopmail-sql.conf.ext}
+(generated by the @command{dovecot-vpopmail} postinst from
+@file{vpopmail.pgsql}; owned @code{root:dovecot 640}).
+
+The connection block format (Dovecot 2.4):
+
+@example
+sql_driver = pgsql
+pgsql localhost @{
+  parameters @{
+    dbname = vpopmail
+    user = vpopmail
+    password = <password>
+  @}
+@}
+@end example
+
+Authentication flow:
+
+@example
+IMAP client (port 993 or 143+STARTTLS)
+    |
+    | LOGIN user@@domain password (over TLS)
+    v
+Dovecot auth process
+    |
+    | SQL passdb: SELECT pw_passwd, pw_dir FROM vpopmail
+    |             WHERE pw_name='user' AND pw_domain='domain'
+    |
+    | verify SHA-512 crypt hash (SHA512-CRYPT scheme)
+    |
+    +-- success:
+    |   uid=89 (vpopmail), gid=89 (vchkpw)
+    |   home = pw_dir (e.g. /home/vpopmail/domains/domain/user)
+    |   mail = ~/Maildir  (INBOX is the Maildir root)
+    |
+    +-- failure: IMAP NO Authentication failed
+@end example
+
+@section IMAP Authentication — System Users
+
+Unix system users authenticate against
+@file{/etc/dovecot/system-passwd} (owned @code{root:dovecot 640}),
+which uses standard @code{passwd(5)} format with a @code{@{PLAIN@}}
+or @code{@{CRYPT@}} password prefix:
+
+@example
+username:@{PLAIN@}clearpassword:uid:gid:gecos:homedir:shell
+username:@{CRYPT@}$6$...:uid:gid:gecos:homedir:shell
+@end example
+
+The auth chain tries the SQL passdb first; if the user is not found
+in the vpopmail table, Dovecot falls through to the @code{passwd-file}
+passdb.  @code{auth_username_format = %@{user|username@}} strips the
+domain component before the lookup, so @email{fade@@example.com} matches
+the @code{fade} entry.
+
+@section TLS Certificate
+
+A single combined PEM file at @file{/etc/qmail/servercert.pem} serves
+both qmail-smtpd (STARTTLS on ports 25 and 587) and, indirectly,
+Dovecot (whose certificate is extracted from it by the
+@command{dovecot-vpopmail} postinst):
+
+@example
+/etc/qmail/servercert.pem   root:vchkpw 640   qmail TLS (cert + key)
+/etc/dovecot/private/dovecot.pem   root:dovecot 644   Dovecot TLS cert
+/etc/dovecot/private/dovecot.key   root:dovecot 600   Dovecot TLS key
+@end example
+
+The @code{vchkpw} group ownership on @file{servercert.pem} is required
+because @command{qmail-smtpd} runs as @code{gid=vchkpw} and must read
+the private key to perform the TLS handshake.
+
+
+@c ============================================================
+@node Operations
+@chapter Operations — TL;DR
+
+@section Adding a Virtual Domain
+
+@example
+# 1. Create the domain in vpopmail and PostgreSQL
+sudo /home/vpopmail/bin/vadddomain example.com postmaster-password
+
+# vadddomain also:
+#   - adds example.com to /etc/qmail/rcpthosts
+#   - adds "example.com:example.com" to /etc/qmail/virtualdomains
+#   - adds "+example.com-:..." to /var/lib/qmail/users/assign
+#   - runs qmail-newu to rebuild users.cdb
+#   - creates /home/vpopmail/domains/example.com/
+
+# 2. Signal qmail-send to re-read virtualdomains
+sudo svc -h /etc/service/qmail-send
+
+# 3. Verify
+sudo /home/vpopmail/bin/vdominfo example.com
+@end example
+
+@section Adding a Virtual User
+
+@example
+# Add user to an existing domain
+sudo /home/vpopmail/bin/vadduser user@@example.com password
+
+# Change a password
+sudo /home/vpopmail/bin/vpasswd user@@example.com
+
+# Delete a user (removes Maildir)
+sudo /home/vpopmail/bin/vdeluser user@@example.com
+
+# List users in a domain
+sudo /home/vpopmail/bin/vdominfo -v example.com
+
+# Show user details (uid, dir, quota)
+sudo /home/vpopmail/bin/vuserinfo user@@example.com
+
+# Set a mailbox quota (100 MB)
+sudo /home/vpopmail/bin/vsetuserquota user@@example.com 102400S
+@end example
+
+@section Setting Up a System User for IMAP
+
+System users are Unix accounts (e.g., shell users) who receive mail in
+their home directory Maildir and authenticate to Dovecot using a
+password in @file{/etc/dovecot/system-passwd}.
+
+@example
+# 1. Create the Unix user and Maildir
+sudo useradd -m -s /bin/bash fade
+sudo mkdir -p /home/fade/Maildir/@{new,cur,tmp@}
+sudo chown -R fade:fade /home/fade/Maildir
+echo './Maildir/' | sudo tee /home/fade/.qmail
+sudo chown fade:fade /home/fade/.qmail
+
+# 2. Add IMAP credentials to system-passwd
+#    Use @{PLAIN@} for cleartext or @{CRYPT@} for a hashed password.
+#    To generate a SHA-512 hash: openssl passwd -6 'thepassword'
+HASH=$(openssl passwd -6 'thepassword')
+printf '%s\n' \
+  "fade:@{CRYPT@}$HASH:$(id -u fade):$(id -g fade)::/home/fade:/bin/bash" \
+  | sudo tee -a /etc/dovecot/system-passwd
+sudo doveadm reload
+
+# 3. Route fade@@example.com to the system user via qmail users/assign
+#    The entry must appear BEFORE the +example.com- wildcard.
+#    vadddomain inserts wildcards; add the exact match with sed:
+sudo sed -i "/^\\.$/i =example.com-fade:fade:$(id -u fade):$(id -g fade):/home/fade:::" \
+  /var/lib/qmail/users/assign
+sudo /var/lib/qmail/bin/qmail-newu
+
+# 4. Verify
+sudo doveadm auth test fade@@example.com thepassword
+sudo doveadm user fade@@example.com
+@end example
+
+@subsection Routing Mail to a System User
+
+qmail's virtualdomains mechanism rewrites @email{fade@@example.com} to
+the local address @code{example.com-fade}.  The exact-match entry in
+@file{/var/lib/qmail/users/assign} (prefix @code{=}) takes precedence
+over the wildcard entry (prefix @code{+}) that routes all other
+@code{example.com} mail to vpopmail:
+
+@example
+=example.com-fade:fade:1000:1000:/home/fade:::   ← exact match, wins
++example.com-:example.com:89:89:/home/vpopmail/domains/example.com:-::
+.
+@end example
+
+@section Removing a Virtual Domain
+
+@cartouche
+@strong{Warning:} @command{vdeldomain} permanently removes the domain
+directory and all user Maildirs.  This cannot be undone.
+@end cartouche
+
+@example
+sudo /home/vpopmail/bin/vdeldomain example.com
+sudo svc -h /etc/service/qmail-send
+@end example
+
+@section Service Management
+
+@example
+# Status of all qmail services
+sudo svstat /etc/service/qmail-send
+sudo svstat /etc/service/qmail-smtpd
+sudo svstat /etc/service/qmail-submission
+
+# Start / stop / restart
+sudo svc -u /etc/service/qmail-send       # up
+sudo svc -d /etc/service/qmail-send       # down
+sudo svc -t /etc/service/qmail-send       # restart (TERM + restart)
+sudo svc -h /etc/service/qmail-send       # reload (HUP — re-reads control files)
+
+# Trigger immediate delivery attempt
+sudo svc -a /etc/service/qmail-send       # ALRM signal
+
+# Dovecot
+sudo systemctl status dovecot
+sudo doveadm reload                       # soft reload, no disconnections
+@end example
+
+@section Viewing Logs
+
+qmail logs are in tai64n format; @command{tai64nlocal} converts timestamps.
+
+@example
+# Follow delivery log in human-readable form
+sudo tail -f /var/log/qmail/send/current | tai64nlocal
+
+# Recent SMTP reception log
+sudo cat /var/log/qmail/smtpd/current | tai64nlocal | tail -50
+
+# Submission port log
+sudo cat /var/log/qmail/submission/current | tai64nlocal | tail -50
+
+# Dovecot auth events (via journald)
+sudo journalctl -u dovecot -n 50 --no-pager
+@end example
+
+@section Queue Management
+
+@example
+# Number of messages currently queued
+/var/lib/qmail/bin/qmail-qstat
+
+# Detailed queue listing (sender, recipient, age)
+/var/lib/qmail/bin/qmail-qread
+
+# Force immediate retry of deferred messages
+sudo svc -a /etc/service/qmail-send
+@end example
+
+@section Verifying the Stack
+
+@command{dsmr-verify} runs a comprehensive end-to-end test of all
+56 checks.  It requires temporary test fixtures to be pre-created
+(see its output for details):
+
+@example
+sudo dsmr-verify
+@end example
+
+For a quick smoke test without fixtures:
+
+@example
+# Packages installed
+dpkg -l | grep -E 'dsmr|dovecot-vpopmail|qmail|vpopmail'
+
+# Services up
+sudo svstat /etc/service/qmail-send \
+            /etc/service/qmail-smtpd \
+            /etc/service/qmail-submission
+sudo systemctl is-active dovecot
+
+# PostgreSQL connectivity
+sudo /home/vpopmail/bin/vdominfo   # lists all registered domains
+@end example
+
+@section Relay Control
+
+Edit @file{/etc/qmail/tcp.smtp} then recompile the CDB:
+
+@example
+# /etc/qmail/tcp.smtp format:
+# 127.:allow,RELAYCLIENT=""
+# 1.2.3.4:allow,RELAYCLIENT=""
+# :allow
+
+sudo tcprules /etc/qmail/tcp.smtp.cdb /etc/qmail/tcp.smtp.tmp \
+  < /etc/qmail/tcp.smtp
+@end example
+
+The submission port (587) does not use @file{tcp.submission} for relay
+control — @env{SMTPAUTH="!"} enforces authentication instead.
+
+@section DKIM
+
+The postinst generates a 2048-bit RSA key at first install.
+
+@example
+# View the DNS TXT record to publish
+DOMAIN=$(cat /etc/qmail/defaultdomain)
+KEY=$(ls /etc/qmail/domainkeys/$DOMAIN/ 2>/dev/null | head -1)
+cat /etc/qmail/domainkeys/$DOMAIN/$KEY.pub
+# DNS record name:  $KEY._domainkey.$DOMAIN
+# DNS record value: v=DKIM1; k=rsa; p=<base64>
+@end example
+
+@section Replacing the TLS Certificate
+
+@example
+# Install a Let's Encrypt certificate (combined PEM)
+sudo cat /etc/letsencrypt/live/hostname/fullchain.pem \
+         /etc/letsencrypt/live/hostname/privkey.pem \
+  > /etc/qmail/servercert.pem
+sudo chmod 640 /etc/qmail/servercert.pem
+sudo chown root:vchkpw /etc/qmail/servercert.pem
+
+# Signal qmail-smtpd and qmail-submission to re-read the cert
+sudo svc -t /etc/service/qmail-smtpd /etc/service/qmail-submission
+
+# Regenerate Dovecot's copy
+sudo rm /etc/dovecot/private/dovecot.pem /etc/dovecot/private/dovecot.key
+sudo dpkg-reconfigure dovecot-vpopmail
+@end example
+
+
+@c ============================================================
+@node qmail
+@chapter qmail
+
+qmail is the Mail Transfer Agent at the heart of the DSMR stack.  The
+DSMR package tracks the @emph{sagredo-dev} patchset on top of netqmail
+1.06, adding the patches listed below without altering qmail's core
+security model.
+
+@section Patches Included
+
+@multitable @columnfractions .25 .15 .60
+@headitem Patch @tab Version @tab Function
+@item TLS @tab 20231230 @tab STARTTLS for SMTP and SMTPS; OpenSSL 3.x
+@item DKIM @tab 1.48 @tab RFC 6376 signing (spawn-filter) and verification
+@item SPF @tab rc5 @tab Sender Policy Framework checking
+@item SRS @tab — @tab Sender Rewriting Scheme (via libsrs2)
+@item chkuser @tab 2.0.9 @tab Recipient verification at SMTP time against vpopmail
+@item qmail-dnsbl @tab — @tab DNSBL rejection
+@item EAI/SMTPUTF8 @tab — @tab RFC 6531 international addresses
+@item helodnscheck @tab — @tab Forward-confirmed reverse DNS on EHLO
+@end multitable
+
+@section Filesystem Layout
+
+@multitable @columnfractions .45 .55
+@headitem Path @tab Contents
+@item @file{/usr/bin/}, @file{/usr/sbin/} @tab qmail binaries
+@item @file{/var/lib/qmail/} @tab Runtime home (queue, control, users, boot)
+@item @file{/etc/qmail/} @tab Symlink → @file{/var/lib/qmail/control/}
+@item @file{/var/qmail/} @tab Compatibility symlink → @file{/var/lib/qmail/}
+@item @file{/var/lib/qmail/queue/} @tab Mail queue
+@item @file{/var/log/qmail/} @tab Multilog log directories
+@end multitable
+
+@section Key Control Files
+
+All paths relative to @file{/etc/qmail/}:
+
+@multitable @columnfractions .35 .65
+@headitem File @tab Purpose
+@item @file{me} @tab FQDN of this server
+@item @file{defaultdomain} @tab Domain appended to bare addresses
+@item @file{locals} @tab Locally-delivered domains
+@item @file{rcpthosts} @tab Accepted recipient domains
+@item @file{virtualdomains} @tab Virtual domain routing rules
+@item @file{servercert.pem} @tab TLS cert + key (combined PEM, @code{root:vchkpw 640})
+@item @file{domainkeys/} @tab DKIM private keys per domain
+@item @file{filterargs} @tab spawn-filter arguments (enables DKIM)
+@item @file{spfbehavior} @tab SPF action (0=off 1=log 2=reject)
+@item @file{tcp.smtp.cdb} @tab Compiled relay rules for port 25
+@item @file{tcp.submission.cdb} @tab Compiled relay rules for port 587
+@item @file{concurrencyincoming} @tab Max concurrent SMTP connections
+@item @file{softlimit} @tab Memory limit per smtpd process (bytes)
+@end multitable
+
+@xref{dsmr-qmail-run}, for the run scripts that launch these services.
+
+
+@c ============================================================
+@node vpopmail
+@chapter vpopmail
+
+vpopmail 5.6.13 manages virtual mail domains and users independently
+of Unix system accounts.  The DSMR build uses a PostgreSQL authentication
+backend (@option{--enable-auth-module=pgsql}) and disables clear-text
+password storage (@option{--enable-clear-passwd=n}).
+
+@section PostgreSQL Database
+
+The postinst auto-creates the database and role on first installation.
+Credentials are stored in @file{/home/vpopmail/etc/vpopmail.pgsql}
+(owned @code{root:vchkpw 640}):
+
+@example
+host|port|user|password|database
+localhost|5432|vpopmail|<random-password>|vpopmail
+@end example
+
+The primary PostgreSQL tables:
+
+@table @code
+@item vpopmail
+One row per virtual user.  Key columns: @code{pw_name}, @code{pw_domain},
+@code{pw_passwd} (SHA-512 crypt hash), @code{pw_dir} (Maildir parent).
+
+@item dir_control
+One row per domain.  Controls the Maildir subdirectory distribution
+scheme used for domains with large user counts.
+@end table
+
+@section Filesystem Layout
+
+@example
+/home/vpopmail/
+├── bin/            vpopmail utilities
+├── domains/
+│   └── example.com/
+│       ├── .qmail-default     # "| vdelivermail '' delete"
+│       ├── postmaster/
+│       │   └── Maildir/
+│       └── user/
+│           ├── .qmail
+│           └── Maildir/
+│               ├── cur/
+│               ├── new/       ← inbound mail lands here
+│               └── tmp/
+└── etc/
+    └── vpopmail.pgsql         PostgreSQL credentials (root:vchkpw 640)
+@end example
+
+@section vpopmail Utilities
+
+@table @command
+@item vadddomain @var{domain} @var{postmaster-pass}
+Create a virtual domain.  Also updates @file{rcpthosts},
+@file{virtualdomains}, and @file{users/assign}.
+
+@item vdeldomain @var{domain}
+Delete a virtual domain and all its users and Maildirs.
+
+@item vdominfo [@var{domain}]
+Display domain information; with no argument lists all domains.
+
+@item vadduser @var{user@@domain} @var{password}
+Add a virtual user.
+
+@item vdeluser @var{user@@domain}
+Delete a virtual user.
+
+@item vpasswd @var{user@@domain}
+Change a user's password interactively.
+
+@item vuserinfo @var{user@@domain}
+Display user details (uid, dir, quota).
+
+@item vsetuserquota @var{user@@domain} @var{quota}
+Set mailbox quota (e.g., @code{102400S} for 100 MB).
+
+@item vchkpw
+Authentication binary (setuid root, @code{root:vchkpw}).
+Invoked by qmail-smtpd on port 587; not called directly by administrators.
+@end table
+
+
+@c ============================================================
+@node dovecot-vpopmail
+@chapter dovecot-vpopmail
+
+@code{dovecot-vpopmail} is a configuration-only Debian package
+(Architecture: all, no compiled code).  It installs conf.d snippets
+and a postinst that wires Dovecot 2.4 into the DSMR vpopmail stack.
+
+@section Why SQL Instead of Native vpopmail Drivers
+
+Dovecot 2.4 removed the @code{vpopmail} and @code{checkpassword} passdb
+drivers present in 2.3.  The only supported path for authenticating
+vpopmail users with Dovecot 2.4 is the @code{sql} passdb driver,
+querying the vpopmail table directly.
+
+@section Installed Configuration
+
+@multitable @columnfractions .50 .50
+@headitem File @tab Purpose
+@item @file{conf.d/05-vpopmail-auth.conf} @tab Auth mechanisms; load SQL passdb before PAM
+@item @file{conf.d/vpopmail-auth-sql.conf.ext} @tab passdb/userdb definitions
+@item @file{conf.d/99-vpopmail-mail.conf} @tab Maildir layout, uid/gid, INBOX path
+@item @file{conf.d/99-vpopmail-master.conf} @tab Auth socket permissions
+@item @file{conf.d/99-vpopmail-ssl.conf} @tab TLS required
+@end multitable
+
+@noindent
+The following files are @emph{generated} by postinst (not conffiles;
+safe to delete and regenerate):
+
+@multitable @columnfractions .55 .25 .20
+@headitem File @tab Owner/Mode @tab Contents
+@item @file{/etc/dovecot/dovecot-vpopmail-sql.conf.ext} @tab root:dovecot 640 @tab PostgreSQL connection block
+@item @file{/etc/dovecot/system-passwd} @tab root:dovecot 640 @tab System user passwords
+@item @file{/etc/dovecot/private/dovecot.pem} @tab root:dovecot 644 @tab TLS certificate
+@item @file{/etc/dovecot/private/dovecot.key} @tab root:dovecot 600 @tab TLS private key
+@end multitable
+
+@section Regenerating Generated Files
+
+If @file{vpopmail.pgsql} is updated (e.g., after a password rotation):
+
+@example
+sudo dpkg-reconfigure dovecot-vpopmail
+sudo doveadm reload
+@end example
+
+@section Adding a System User
+
+@xref{Operations, Setting Up a System User for IMAP}, for the complete
+procedure.  In brief: add an entry to @file{/etc/dovecot/system-passwd}
+and an exact-match entry to @file{/var/lib/qmail/users/assign}.
+
+
+@c ============================================================
+@node dsmr-qmail-run
+@chapter dsmr-qmail-run
+
+@code{dsmr-qmail-run} installs and manages the three daemontools
+supervised service trees for qmail.  It conflicts with the upstream
+@code{qmail-run} package.
+
+@section Services
+
+@multitable @columnfractions .30 .10 .60
+@headitem Service @tab Port @tab Description
+@item @file{qmail-send} @tab — @tab Queue runner + local/remote delivery
+@item @file{qmail-smtpd} @tab 25 @tab Inbound SMTP (open relay restricted by CDB)
+@item @file{qmail-submission} @tab 587 @tab Authenticated submission (vchkpw required)
+@end multitable
+
+Service trees live at @file{/usr/lib/dsmr-qmail-run/supervise/} and are
+symlinked into @file{/etc/service/} by the postinst.
+
+@section Run Script Behaviour
+
+All three run scripts derive runtime values from the system at startup:
+
+@table @env
+@item QMAILDUID
+Set to @code{id -u vpopmail} (uid 89).  @command{qmail-smtpd} and
+@command{qmail-send} run as this uid.
+
+@item NOFILESGID
+Set to @code{id -g vpopmail} (gid 89 = vchkpw).  The process's
+primary group; also the group that must be able to read
+@file{servercert.pem}.
+
+@item SOFTLIMIT
+Reads @file{/etc/qmail/softlimit} (bytes); enforced via
+@command{softlimit}.
+
+@item MAXSMTPD
+Reads @file{/etc/qmail/concurrencyincoming}; controls
+@command{tcpserver} connection limit.
+@end table
+
+@section Fresh Install vs. Upgrade Behaviour
+
+On fresh install the postinst brings each supervised service up with
+@code{svc -u} immediately after symlinking.  On upgrade it sends
+@code{svc -t} (TERM + restart) to @command{qmail-send} and
+@command{qmail-smtpd} to apply updated run scripts without dropping
+connections; the submission service is restarted in the same way.
+
+@section DKIM via spawn-filter
+
+If @file{/etc/qmail/filterargs} exists, the @command{qmail-send} run
+script sets:
+
+@example
+QMAILREMOTE=/var/lib/qmail/bin/spawn-filter
+@end example
+
+@command{spawn-filter} reads @file{filterargs} to determine signing
+parameters (key path, selector, domain) and calls the DKIM signing
+binary before handing the message to @command{qmail-remote}.
+
+
+@c ============================================================
+@node ucspi-ssl
+@chapter ucspi-ssl
+
+@code{ucspi-ssl} 0.13.07 (the fehcom.de fork) provides TLS support
+for djbware services via the UCSPI interface.  In the DSMR stack it
+supplies the TLS primitives used by qmail-smtpd's built-in STARTTLS
+implementation (statically linked via fehqlibs).
+
+@section Provided Programs
+
+@table @command
+@item sslserver
+Accepts TLS connections; analogous to @command{tcpserver}.
+
+@item sslclient
+Initiates TLS connections; analogous to @command{tcpclient}.
+
+@item sslio
+STARTTLS relay: bridges a plain-text UCSPI service to a TLS channel.
+@end table
+
+@section Build Dependencies
+
+ucspi-ssl is compiled against @code{fehqlibs-dev} for DNS resolution
+and @code{libssl-dev} (OpenSSL 3.x) for TLS.  It supports TLS 1.3
+and is compatible with OpenSSL 3 and LibreSSL.
+
+@section Usage Note
+
+The DSMR submission run script invokes @command{qmail-smtpd} directly
+with STARTTLS capability built in (compiled via the TLS patch).
+@command{sslserver} is available for services that require a separate
+TLS wrapper rather than built-in STARTTLS.
+
+
+@c ============================================================
+@node fehqlibs
+@chapter fehqlibs
+
+@code{fehqlibs-dev} 30 is a collection of static libraries by Erwin
+Hoffman (@url{https://www.fehcom.de/}) that provide DNS resolution,
+network, buffer, and string primitives used by qmail and ucspi-ssl.
+
+@section Contents
+
+@multitable @columnfractions .35 .65
+@headitem Library @tab Role
+@item @file{libqlibs.a} @tab Buffer, string, socket, environment routines
+@item @file{libdnsresolv.a} @tab DNSSEC-aware recursive resolver
+@end multitable
+
+Headers and libraries install to @file{/usr/lib/fehqlibs/}.  The
+package is a build-time dependency only; it installs no runtime
+components and leaves no shared libraries in the dynamic linker path.
+
+@section Why a Separate Package
+
+The sagredo-dev qmail patchset and ucspi-ssl both depend on fehqlibs.
+Packaging fehqlibs-dev separately ensures both can be built and
+upgraded consistently without vendoring the source into each package.
+
+
+@c ============================================================
+@node Concept Index
+@unnumbered Concept Index
+
+@printindex cp
+
+@bye

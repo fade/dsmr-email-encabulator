@@ -4,11 +4,11 @@
 
 * Summary
 
-~vpopmail~ packages vpopmail 5.6.13 with a MySQL/MariaDB authentication
+~vpopmail~ packages vpopmail 5.6.13 with a PostgreSQL authentication
 backend.  It provides virtual domain and user management for qmail: the
 ~vadddomain~, ~vadduser~, and related tools create and manage email accounts
-stored in the ~vpopmail~ MySQL database.  ~vdelivermail~ delivers mail into
-vpopmail Maildir directories.  ~vchkpw~ authenticates users for SMTP
+stored in the ~vpopmail~ PostgreSQL database.  ~vdelivermail~ delivers mail
+into vpopmail Maildir directories.  ~vchkpw~ authenticates users for SMTP
 submission (port 587).  Passwords are stored as SHA-512 crypt hashes.
 
 The companion ~vpopmail-dev~ package installs headers and the ~lib_deps~ file
@@ -22,7 +22,7 @@ needed to build qmail with chkuser recipient verification.
 | Architecture  | any                                 |
 | Home          | ~/home/vpopmail/~                   |
 | Domains       | ~/home/vpopmail/domains/~           |
-| Config        | ~/home/vpopmail/etc/vpopmail.mysql~ |
+| Config        | ~/home/vpopmail/etc/vpopmail.pgsql~ |
 | Target        | Debian 13 Trixie                    |
 
 * Description
@@ -34,13 +34,13 @@ containing a Maildir and a ~.qmail~ file.  qmail delivers to these Maildirs
 via ~vdelivermail~; SMTP submission authentication uses ~vchkpw~ (setuid root,
 owned root:vchkpw).
 
-** Why MySQL instead of CDB?
+** Why PostgreSQL instead of CDB?
 
 vpopmail originally supported CDB, LDAP, MySQL, and others.  Starting with
 dovecot 2.3.13 and fully in 2.4, dovecot removed its native vpopmail passdb
 and checkpassword passdb drivers.  The only viable path for dovecot
 authentication against vpopmail accounts is SQL.  This build therefore uses
-~--enable-auth-module=mysql~ so the vpopmail database can be queried directly
+~--enable-auth-module=pgsql~ so the vpopmail database can be queried directly
 by dovecot's ~passdb sql~ driver.
 
 ** Password storage
@@ -49,17 +49,18 @@ by dovecot's ~passdb sql~ driver.
 hashes (~$6$...~) in the ~pw_passwd~ column of the ~vpopmail~ table.  Clear
 text is never stored.
 
-** MySQL database
+** PostgreSQL database
 
-The postinst auto-configures MySQL on first install:
+The PostgreSQL role and database must exist before installing the package.
+The postinst writes the credential file:
 
-- Database: ~vpopmail~ (utf8mb4)
-- User: ~vpopmail~ with ~SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX~
-- Credentials written to ~/home/vpopmail/etc/vpopmail.mysql~ (640, root:vchkpw)
+- Database: ~vpopmail~
+- User: ~vpopmail~ with full rights on the ~vpopmail~ database
+- Credentials written to ~/home/vpopmail/etc/vpopmail.pgsql~ (640, root:vchkpw)
 - Format: ~host|port|user|password|database~
 
-The vpopmail tools auto-create the schema tables (~vpopmail~, ~limits~, etc.)
-on first ~vadddomain~ call.
+The vpopmail tools auto-create the schema tables (~vpopmail~, ~dir_control~,
+etc.) on first ~vadddomain~ call.
 
 * TL;DR Runtime Documentation
 
@@ -112,41 +113,41 @@ sudo /home/vpopmail/bin/vdominfo -v example.com
 │               ├── new/       # ← qmail delivers here
 │               └── tmp/
 ├── etc/
-│   └── vpopmail.mysql         # MySQL credentials (640 root:vchkpw)
+│   └── vpopmail.pgsql         # PostgreSQL credentials (640 root:vchkpw)
 └── include/                   # Headers (vpopmail-dev)
 #+END_SRC
 
-** MySQL credentials
+** PostgreSQL credentials
 
 #+BEGIN_SRC sh
 # Read credentials (requires root or vchkpw group membership)
-sudo cat /home/vpopmail/etc/vpopmail.mysql
+sudo cat /home/vpopmail/etc/vpopmail.pgsql
 # Output: host|port|user|password|database
-# Example: localhost|0|vpopmail|<random-password>|vpopmail
+# Example: localhost|5432|vpopmail|<password>|vpopmail
 #+END_SRC
 
-** Manual MySQL setup (if postinst auto-config failed)
+** Manual PostgreSQL setup
 
 #+BEGIN_SRC sh
 PASS=$(openssl rand -base64 18 | tr -d '/+=')
-sudo mysql --user=root <<SQL
-CREATE DATABASE IF NOT EXISTS vpopmail CHARACTER SET utf8mb4;
-CREATE USER IF NOT EXISTS 'vpopmail'@'localhost' IDENTIFIED BY '${PASS}';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX
-  ON vpopmail.* TO 'vpopmail'@'localhost';
-FLUSH PRIVILEGES;
+sudo -u postgres psql <<SQL
+CREATE DATABASE vpopmail;
+CREATE USER vpopmail WITH PASSWORD '${PASS}';
+GRANT ALL PRIVILEGES ON DATABASE vpopmail TO vpopmail;
+\c vpopmail
+GRANT ALL ON SCHEMA public TO vpopmail;
 SQL
-echo "localhost|0|vpopmail|${PASS}|vpopmail" | \
-  sudo tee /home/vpopmail/etc/vpopmail.mysql
-sudo chmod 640 /home/vpopmail/etc/vpopmail.mysql
-sudo chown root:vchkpw /home/vpopmail/etc/vpopmail.mysql
+echo "localhost|5432|vpopmail|${PASS}|vpopmail" | \
+  sudo tee /home/vpopmail/etc/vpopmail.pgsql
+sudo chmod 640 /home/vpopmail/etc/vpopmail.pgsql
+sudo chown root:vchkpw /home/vpopmail/etc/vpopmail.pgsql
 #+END_SRC
 
 ** vchkpw authentication (SMTP submission)
 
 ~vchkpw~ is used by the ~qmail-submission~ supervise script to authenticate
 users on port 587.  It reads a username and password from the authenticating
-client, looks up the user in the vpopmail MySQL database, verifies the
+client, looks up the user in the vpopmail PostgreSQL database, verifies the
 SHA-512 crypt hash, and execs the next program (typically qmail-smtpd) if
 successful.
 
@@ -156,7 +157,7 @@ ls -la /home/vpopmail/bin/vchkpw
 # -rwsr-x--- 1 root vchkpw ...  /home/vpopmail/bin/vchkpw
 #+END_SRC
 
-** MySQL schema tables
+** PostgreSQL schema tables
 
 vpopmail creates its own tables on first ~vadddomain~.  The primary table:
 
@@ -185,4 +186,4 @@ dpkg-buildpackage -us -uc -b
 #+END_SRC
 
 Requires: ~debhelper-compat~, ~autoconf~, ~automake~, ~libtool~,
-~default-libmysqlclient-dev~, and ~qmail-uids-gids~ pre-installed.
+~libpq-dev~, and ~qmail-uids-gids~ pre-installed.

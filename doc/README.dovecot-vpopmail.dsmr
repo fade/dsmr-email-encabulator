@@ -6,15 +6,15 @@
 
 ~dovecot-vpopmail~ is a configuration-only package (no compiled binaries) that
 wires dovecot 2.4 into the DSMR qmail/vpopmail stack.  It installs conf.d
-snippets that authenticate IMAP users against the vpopmail MySQL database and
-serve their Maildirs.  TLS is required on all connections; the certificate is
-taken from (or shares its origin with) the qmail TLS certificate.
+snippets that authenticate IMAP users against the vpopmail PostgreSQL database
+and serve their Maildirs.  TLS is required on all connections; the certificate
+is taken from (or shares its origin with) the qmail TLS certificate.
 
 | Field         | Value                                          |
 |---------------+------------------------------------------------|
 | Source        | dovecot-vpopmail                               |
 | Binary        | dovecot-vpopmail                               |
-| Version       | 2.4.1-1                                        |
+| Version       | 2.4.1-8                                        |
 | Architecture  | all (config only)                              |
 | Conf snippets | ~/etc/dovecot/conf.d/~                         |
 | Generated     | ~/etc/dovecot/dovecot-vpopmail-sql.conf.ext~   |
@@ -26,12 +26,12 @@ taken from (or shares its origin with) the qmail TLS certificate.
 
 Dovecot 2.4 removed the vpopmail passdb and checkpassword passdb drivers that
 were present in 2.3.  The only supported path for authenticating vpopmail
-virtual users is the SQL passdb driver querying the ~vpopmail~ MySQL table
+virtual users is the SQL passdb driver querying the ~vpopmail~ PostgreSQL table
 directly.
 
 This package provides that configuration.  It ships five conf.d snippets and
-a postinst that generates the MySQL connection block (with credentials) from
-the vpopmail credential file written by the vpopmail package.
+a postinst that generates the PostgreSQL connection block (with credentials)
+from the vpopmail credential file written by the vpopmail package.
 
 ** Authentication flow
 
@@ -39,7 +39,7 @@ the vpopmail credential file written by the vpopmail package.
 2. Client sends LOGIN with ~user@domain~ and plaintext password (over TLS).
 3. ~05-vpopmail-auth.conf~ loads first (before ~10-auth.conf~), so the SQL
    passdb is tried before the system PAM passdb.
-4. dovecot executes the ~password_query~ against the ~vpopmail~ MySQL table.
+4. dovecot executes the ~password_query~ against the ~vpopmail~ PostgreSQL table.
 5. The returned ~pw_passwd~ (~$6$...~ SHA-512 crypt hash) is verified against
    the user-supplied password using ~default_password_scheme = SHA512-CRYPT~.
 6. On success the ~user_query~ returns ~pw_dir~ as the home directory.
@@ -95,7 +95,7 @@ to the local address ~example.com-marvin~ before the CDB lookup.)
 
 | File                                         | Owner/Mode       | Purpose                |
 |----------------------------------------------+------------------+------------------------|
-| ~/etc/dovecot/dovecot-vpopmail-sql.conf.ext~ | root:dovecot 640 | MySQL connection block |
+| ~/etc/dovecot/dovecot-vpopmail-sql.conf.ext~ | root:dovecot 640 | PostgreSQL connection block |
 | ~/etc/dovecot/system-passwd~                 | root:dovecot 640 | System user auth file  |
 | ~/etc/dovecot/private/dovecot.pem~           | root:dovecot 644 | TLS certificate        |
 | ~/etc/dovecot/private/dovecot.key~           | root:dovecot 600 | TLS private key        |
@@ -104,15 +104,15 @@ to the local address ~example.com-marvin~ before the CDB lookup.)
 
 ** Installation
 
-Install in dependency order; vpopmail and its MySQL database must exist first:
+Install in dependency order; vpopmail and its PostgreSQL database must exist first:
 
 #+BEGIN_SRC sh
-sudo dpkg -i dovecot-core_*.deb dovecot-imapd_*.deb dovecot-mysql_*.deb
-sudo dpkg -i dovecot-vpopmail_2.4.1-1_all.deb
+sudo dpkg -i dovecot-core_*.deb dovecot-imapd_*.deb dovecot-pgsql_*.deb
+sudo dpkg -i dovecot-vpopmail_2.4.1-8_all.deb
 #+END_SRC
 
-The postinst reads ~/home/vpopmail/etc/vpopmail.mysql~, generates the dovecot
-MySQL connection file, extracts the TLS certificate from
+The postinst reads ~/home/vpopmail/etc/vpopmail.pgsql~, generates the dovecot
+PostgreSQL connection file, extracts the TLS certificate from
 ~/etc/qmail/servercert.pem~, and reloads dovecot.
 
 ** Service management
@@ -142,20 +142,20 @@ sudo doveadm reload
 A successful login shows ~a OK [...] Logged in~ and SELECT INBOX shows
 ~b OK [READ-WRITE] Select completed~.
 
-** Checking the MySQL connection
+** Checking the PostgreSQL connection
 
 #+BEGIN_SRC sh
 # View generated connection config (root only)
 sudo cat /etc/dovecot/dovecot-vpopmail-sql.conf.ext
 
 # Test the SQL query manually
-sudo mysql --user=root vpopmail \
-  -e "SELECT pw_name, pw_domain, pw_dir FROM vpopmail LIMIT 5;"
+sudo psql -U vpopmail vpopmail \
+  -c "SELECT pw_name, pw_domain, pw_dir FROM vpopmail LIMIT 5;"
 #+END_SRC
 
 ** Regenerating the SQL connection config
 
-If ~/home/vpopmail/etc/vpopmail.mysql~ is updated (e.g. after rotating
+If ~/home/vpopmail/etc/vpopmail.pgsql~ is updated (e.g. after rotating
 the database password), regenerate the dovecot connection file by
 re-running the postinst configure action:
 

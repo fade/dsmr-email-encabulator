@@ -1,3 +1,26 @@
+dsmr-email-encabulator (1.0-6) trixie; urgency=low
+
+  * doc: correct all MySQL references to PostgreSQL in README.vpopmail.dsmr
+    and README.dovecot-vpopmail.dsmr; update dovecot-vpopmail version to 2.4.1-8.
+  * Build texi manual to info format; install via dh_installinfo.
+  * Build-Depends: add texinfo.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sat, 04 Apr 2026 00:00:00 -0400
+
+dsmr-email-encabulator (1.0-5) trixie; urgency=medium
+
+  * dsmr-verify: fix vpopmail.pgsql field parsing (host|port|user|pass|db);
+    fix set -e pipefail crash when vpopmail users not yet created
+
+ -- Brian O'Reilly <fade@deepsky.com>  Fri, 03 Apr 2026 15:43:10 -0400
+
+dsmr-email-encabulator (1.0-3) trixie; urgency=medium
+
+  * Depends: add dsmr-qmail-run (>= 1.0) for runtime service management.
+  * Depends: replace dovecot-mysql with dovecot-pgsql (PostgreSQL backend).
+
+ -- Brian O'Reilly <fade@deepsky.com>  Fri, 03 Apr 2026 00:00:00 +0000
+
 dsmr-email-encabulator (1.0-2) trixie; urgency=low
 
   * doc/DEVLOG.org: trim to stack comparison only; remove apt repository

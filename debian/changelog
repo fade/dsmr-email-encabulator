@@ -1,3 +1,24 @@
+dsmr-email-encabulator (1.0-8) trixie; urgency=low
+
+  * dsmr-verify: self-contained fixture setup/teardown (example.com domain,
+    test@example.com vpopmail user, marvin system user); fixtures are created
+    at startup if absent and removed on exit via trap.  Restarts qmail-send
+    after vadddomain so virtualdomains is re-read before mail delivery tests.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sat, 04 Apr 2026 00:00:00 -0400
+
+dsmr-email-encabulator (1.0-7) trixie; urgency=low
+
+  * dsmr-verify: add checks for 2026-04-03/04 fixes:
+    - servercert.pem group is vchkpw (STARTTLS cert permission bug)
+    - STARTTLS port 587 TLS handshake completes
+    - vpopmail.pgsql field order (5 fields, numeric port)
+    - dir_control table populated (PostgreSQL never-initialized bug)
+    - users/assign wildcard coverage for all vpopmail domains
+    - dsmr-email-encabulator info file installed
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sat, 04 Apr 2026 00:00:00 -0400
+
 dsmr-email-encabulator (1.0-6) trixie; urgency=low
 
   * doc: correct all MySQL references to PostgreSQL in README.vpopmail.dsmr

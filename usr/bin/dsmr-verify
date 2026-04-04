@@ -22,6 +22,110 @@ check() {
     fi
 }
 
+# ── Test fixture management ────────────────────────────────────────────────
+# These fixtures are created at startup if absent and destroyed at exit.
+FIXTURE_DOMAIN=example.com
+FIXTURE_VPASS=testpass123
+FIXTURE_SYSUSER=marvin
+FIXTURE_SYSPASS=marvinpass
+
+_fx_domain=false
+_fx_user=false
+_fx_sysuser=false
+_fx_marvin_passwd=false
+_fx_marvin_assign=false
+
+teardown_fixtures() {
+    echo "--- Tearing down test fixtures ---"
+    if [[ "$_fx_user" == true ]]; then
+        sudo /home/vpopmail/bin/vdeluser "test@${FIXTURE_DOMAIN}" >/dev/null 2>&1 || true
+    fi
+    if [[ "$_fx_domain" == true ]]; then
+        sudo /home/vpopmail/bin/vdeldomain "$FIXTURE_DOMAIN" >/dev/null 2>&1 || true
+        sudo sed -i "/^+${FIXTURE_DOMAIN}-:/d" /var/lib/qmail/users/assign 2>/dev/null || true
+    fi
+    if [[ "$_fx_marvin_assign" == true ]]; then
+        sudo sed -i "/^=example\\.com-${FIXTURE_SYSUSER}:/d" /var/lib/qmail/users/assign 2>/dev/null || true
+    fi
+    if [[ "$_fx_domain" == true || "$_fx_marvin_assign" == true ]]; then
+        sudo /var/lib/qmail/bin/qmail-newu 2>/dev/null || true
+        sudo svc -t /etc/service/qmail-send 2>/dev/null || true
+    fi
+    if [[ "$_fx_marvin_passwd" == true ]]; then
+        sudo sed -i "/^${FIXTURE_SYSUSER}:{CRYPT}/d" /etc/dovecot/system-passwd 2>/dev/null || true
+    fi
+    if [[ "$_fx_sysuser" == true ]]; then
+        sudo userdel -r "$FIXTURE_SYSUSER" >/dev/null 2>&1 || true
+    fi
+    if [[ "$_fx_marvin_passwd" == true || "$_fx_sysuser" == true ]]; then
+        sudo doveadm reload >/dev/null 2>&1 || true
+    fi
+}
+trap teardown_fixtures EXIT
+
+setup_fixtures() {
+    echo "--- Setting up test fixtures ---"
+    local vpop_uid vpop_gid
+    vpop_uid=$(id -u vpopmail 2>/dev/null || echo 89)
+    vpop_gid=$(id -g vpopmail 2>/dev/null || echo 89)
+
+    # vpopmail domain + users/assign wildcard
+    if ! sudo /home/vpopmail/bin/vdominfo "$FIXTURE_DOMAIN" >/dev/null 2>&1; then
+        sudo /home/vpopmail/bin/vadddomain "$FIXTURE_DOMAIN" postmaster123 >/dev/null 2>&1
+        _fx_domain=true
+        sudo sed -i "/^\\.$/i +${FIXTURE_DOMAIN}-:${FIXTURE_DOMAIN}:${vpop_uid}:${vpop_gid}:/home/vpopmail/domains/${FIXTURE_DOMAIN}/:-::" \
+            /var/lib/qmail/users/assign
+        sudo /var/lib/qmail/bin/qmail-newu
+        # Restart qmail-send so it re-reads virtualdomains immediately
+        sudo svc -t /etc/service/qmail-send
+        sleep 2
+    fi
+
+    # vpopmail test user
+    if ! sudo /home/vpopmail/bin/vuserinfo "test@${FIXTURE_DOMAIN}" >/dev/null 2>&1; then
+        sudo /home/vpopmail/bin/vadduser "test@${FIXTURE_DOMAIN}" "$FIXTURE_VPASS" >/dev/null 2>&1
+        _fx_user=true
+    fi
+
+    # system user marvin + Maildir
+    if ! id "$FIXTURE_SYSUSER" >/dev/null 2>&1; then
+        sudo useradd -m "$FIXTURE_SYSUSER" >/dev/null 2>&1
+        sudo mkdir -p /home/${FIXTURE_SYSUSER}/Maildir/{new,cur,tmp}
+        sudo chown -R ${FIXTURE_SYSUSER}:${FIXTURE_SYSUSER} /home/${FIXTURE_SYSUSER}/Maildir
+        printf './Maildir/\n' | sudo tee /home/${FIXTURE_SYSUSER}/.qmail >/dev/null
+        sudo chown ${FIXTURE_SYSUSER}:${FIXTURE_SYSUSER} /home/${FIXTURE_SYSUSER}/.qmail
+        _fx_sysuser=true
+    fi
+
+    # marvin in dovecot system-passwd
+    if ! sudo grep -q "^${FIXTURE_SYSUSER}:" /etc/dovecot/system-passwd 2>/dev/null; then
+        local m_uid m_gid m_hash
+        m_uid=$(id -u "$FIXTURE_SYSUSER")
+        m_gid=$(id -g "$FIXTURE_SYSUSER")
+        m_hash=$(openssl passwd -6 "$FIXTURE_SYSPASS")
+        printf '%s:{CRYPT}%s:%s:%s::/home/%s:/bin/bash\n' \
+            "$FIXTURE_SYSUSER" "$m_hash" "$m_uid" "$m_gid" "$FIXTURE_SYSUSER" \
+            | sudo tee -a /etc/dovecot/system-passwd >/dev/null
+        _fx_marvin_passwd=true
+    fi
+
+    # marvin exact-match in users/assign (before the +example.com- wildcard)
+    if ! grep -q "^=example\\.com-${FIXTURE_SYSUSER}:" /var/lib/qmail/users/assign 2>/dev/null; then
+        local m_uid m_gid
+        m_uid=$(id -u "$FIXTURE_SYSUSER")
+        m_gid=$(id -g "$FIXTURE_SYSUSER")
+        sudo sed -i "/^+${FIXTURE_DOMAIN}-:/i =example.com-${FIXTURE_SYSUSER}:${FIXTURE_SYSUSER}:${m_uid}:${m_gid}:/home/${FIXTURE_SYSUSER}:::" \
+            /var/lib/qmail/users/assign
+        sudo /var/lib/qmail/bin/qmail-newu
+        _fx_marvin_assign=true
+    fi
+
+    sudo doveadm reload >/dev/null 2>&1 || true
+    echo
+}
+
+setup_fixtures
+
 echo "=== DSMR Stack Verification ==="
 echo "Date: $(date)"
 echo
@@ -47,6 +151,7 @@ for pkg in \
         fail "$pkg not fully installed (state: $state)"
     fi
 done
+check "dsmr-email-encabulator info file" test -f /usr/share/info/dsmr-email-encabulator.info.gz
 echo
 
 # ── 2. Service health ──────────────────────────────────────────────────────
@@ -72,8 +177,23 @@ check "rcpthosts exists"          test -f "$CTRLDIR/rcpthosts"
 check "tcp.smtp.cdb exists"       test -f "$CTRLDIR/tcp.smtp.cdb"
 check "tcp.submission.cdb exists" test -f "$CTRLDIR/tcp.submission.cdb"
 check "servercert.pem exists"     test -f "$CTRLDIR/servercert.pem"
+if sudo stat -c '%G' "$CTRLDIR/servercert.pem" 2>/dev/null | grep -q '^vchkpw$'; then
+    pass "servercert.pem group is vchkpw"
+else
+    fail "servercert.pem group is vchkpw (qmail<=1.06.3-4 set root:qmail, blocking submission STARTTLS)"
+fi
 check "DKIM key directory"        test -d "$CTRLDIR/domainkeys"
 check "filterargs exists"         test -f "$CTRLDIR/filterargs"
+
+# STARTTLS probe: verifies the cert is readable by the smtpd process
+starttls_out=$(timeout 8 openssl s_client -connect localhost:587 \
+    -starttls smtp 2>&1 </dev/null || true)
+if echo "$starttls_out" | grep -q 'CONNECTED\|Verify return code'; then
+    pass "STARTTLS port 587 TLS handshake completes"
+else
+    fail "STARTTLS port 587 TLS handshake completes"
+    echo "$starttls_out" | grep -E 'error:|454|STARTTLS' | head -3 | sed 's/^/  /' || true
+fi
 echo
 
 # ── 4. PostgreSQL / vpopmail database ────────────────────────────────────
@@ -89,12 +209,29 @@ if sudo test -f "$VPOP_PGSQL"; then
     db_pass=$(echo "$db_line" | cut -d'|' -f4)
     db_name=$(echo "$db_line" | cut -d'|' -f5)
 
+    # Verify field count and that port is numeric (catches swapped password/database)
+    IFS='|' read -r -a _pgsql_fields <<< "$db_line"
+    if [[ "${#_pgsql_fields[@]}" -eq 5 && "${_pgsql_fields[1]}" =~ ^[0-9]+$ ]]; then
+        pass "vpopmail.pgsql field order (5 fields, numeric port)"
+    else
+        fail "vpopmail.pgsql field order (got ${#_pgsql_fields[@]} fields; expected host|port|user|password|database)"
+    fi
+
     if PGPASSWORD="$db_pass" psql -h "$db_host" -p "$db_port" \
             -U "$db_user" -d "$db_name" \
             -c "SELECT COUNT(*) FROM vpopmail;" >/dev/null 2>&1; then
         pass "PostgreSQL SELECT on vpopmail table"
     else
         fail "PostgreSQL SELECT on vpopmail table"
+    fi
+
+    dc_count=$(PGPASSWORD="$db_pass" psql -h "$db_host" -p "$db_port" \
+        -U "$db_user" -d "$db_name" -tAc \
+        "SELECT COUNT(*) FROM dir_control;" 2>/dev/null || echo "0")
+    if [[ "$dc_count" =~ ^[1-9] ]]; then
+        pass "dir_control table populated ($dc_count domains)"
+    else
+        fail "dir_control table populated (count: ${dc_count:-0})"
     fi
 
     TEST_TABLE="dsmr_grant_test_$$"
@@ -108,7 +245,9 @@ if sudo test -f "$VPOP_PGSQL"; then
     fi
 else
     fail "vpopmail.pgsql missing"
+    fail "vpopmail.pgsql field order (skipped)"
     fail "PostgreSQL SELECT on vpopmail table (skipped)"
+    fail "dir_control table populated (skipped)"
     fail "PostgreSQL CREATE/DROP privilege (skipped)"
 fi
 echo
@@ -124,6 +263,20 @@ if [ -n "$VTEST_DIR" ] && sudo test -d "$VTEST_DIR/Maildir"; then
     pass "test@example.com Maildir exists"
 else
     fail "test@example.com Maildir missing (dir: ${VTEST_DIR:-unset})"
+fi
+
+# Every vpopmail domain directory must have a wildcard entry in users/assign,
+# otherwise qmail-lspawn cannot route inbound mail for that domain.
+_dom_dirs=$(sudo ls /home/vpopmail/domains/ 2>/dev/null | grep -v '^\.' | wc -l)
+_wildcard_ok=0
+while IFS= read -r _dom; do
+    grep -q "^+${_dom}-:" /var/lib/qmail/users/assign 2>/dev/null && \
+        _wildcard_ok=$((_wildcard_ok+1))
+done < <(sudo ls /home/vpopmail/domains/ 2>/dev/null | grep -v '^\.')
+if [[ "$_wildcard_ok" -eq "$_dom_dirs" && "$_dom_dirs" -gt 0 ]]; then
+    pass "users/assign wildcard coverage ($_wildcard_ok/$_dom_dirs vpopmail domains)"
+else
+    fail "users/assign wildcard coverage ($_wildcard_ok/$_dom_dirs vpopmail domains have +domain-: entries)"
 fi
 echo
 

@@ -1,0 +1,99 @@
+#+TITLE: vpasswd-postgres-convert — DSMR Migration Documentation
+#+AUTHOR: Brian O'Reilly <fade@deepsky.com>
+#+DATE: 2026-04-13
+
+* Summary
+
+~vpasswd-postgres-convert.sh~ migrates legacy vpasswd/vpasswd.cdb file-based
+vpopmail authentication to the PostgreSQL backend used by the DSMR stack.
+
+Older vpopmail installations used flat files (~vpasswd~ and ~vpasswd.cdb~) in
+each domain directory for user authentication.  The DSMR vpopmail package uses
+PostgreSQL as the authentication backend.  When upgrading a system that still
+has legacy vpasswd files, those users must be imported into the PostgreSQL
+~vpopmail~ table before authentication will work.
+
+| Field     | Value                                             |
+|-----------+---------------------------------------------------|
+| Script    | ~/home/vpopmail/bin/vpasswd-postgres-convert.sh~  |
+| Package   | vpopmail                                          |
+| Requires  | root or vpopmail user, running PostgreSQL, ~psql~ |
+
+* Automatic Detection on Upgrade
+
+When the vpopmail package is installed or upgraded, the postinst script checks
+for legacy vpasswd files.  If any are found, it runs the converter in dry-run
+mode and prints a summary.  You must then run the script manually with
+~--commit~ to apply the migration.  This ensures you can review the dry-run
+output before any data is modified.
+
+* Usage
+
+#+BEGIN_SRC sh
+# Dry-run: scan all domains, report what would change (no modifications)
+sudo /home/vpopmail/bin/vpasswd-postgres-convert.sh
+
+# Dry-run a specific domain only
+sudo /home/vpopmail/bin/vpasswd-postgres-convert.sh --domain example.com
+
+# Apply changes: insert/update users in PostgreSQL, rename vpasswd files
+sudo /home/vpopmail/bin/vpasswd-postgres-convert.sh --commit
+
+# Apply changes to a specific domain
+sudo /home/vpopmail/bin/vpasswd-postgres-convert.sh --commit --domain example.com
+#+END_SRC
+
+The ~--domain~ flag can be repeated to process multiple specific domains.
+
+* What It Does
+
+For each domain directory under ~/home/vpopmail/domains/~:
+
+1. *Checks for a vpasswd file.*  Domains without one are already using
+   database authentication and are skipped.
+
+2. *Parses each vpasswd entry.*  The file format is colon-delimited:
+   ~pw_name:pw_passwd:pw_uid:pw_gid:pw_gecos:pw_dir:pw_shell~
+
+3. *Compares against PostgreSQL.*  For each user:
+   - *Missing from DB*: inserted with all fields from vpasswd.
+   - *Present and matching*: reported as OK, no action taken.
+   - *Present but mismatched*: the specific differing fields are reported
+     and (with ~--commit~) updated to match the vpasswd file.
+
+4. *Retires the flat files* (with ~--commit~): ~vpasswd~ and ~vpasswd.cdb~ are
+   renamed to timestamped ~.bak~ files (e.g. ~vpasswd.bak.20260413112429~).
+   The ~.vpasswd.lock~ file is removed.
+
+* vpasswd File Format Reference
+
+Each line in a vpasswd file corresponds to one virtual user:
+
+#+BEGIN_EXAMPLE
+username:encrypted_password:uid:gid:gecos:home_directory:quota
+#+END_EXAMPLE
+
+| Field    | Example                                    | DB column   |
+|----------+--------------------------------------------+-------------|
+| username | ~postmaster~                               | ~pw_name~   |
+| password | ~$6$salt$hash...~                          | ~pw_passwd~ |
+| uid      | ~0~                                        | ~pw_uid~    |
+| gid      | ~0~                                        | ~pw_gid~    |
+| gecos    | ~Postmaster~                               | ~pw_gecos~  |
+| home_dir | ~/home/vpopmail/domains/ex.com/postmaster~ | ~pw_dir~    |
+| quota    | ~NOQUOTA~ or ~50000000S~                   | ~pw_shell~  |
+
+* Rollback
+
+The original vpasswd files are preserved as timestamped ~.bak~ files in each
+domain directory.
+
+#+BEGIN_SRC sh
+# Restore the flat file
+cd /home/vpopmail/domains/example.com
+mv vpasswd.bak.20260413112429 vpasswd
+
+# Remove inserted rows from PostgreSQL
+psql -U vpopmail -d vpopmail -c \
+  "DELETE FROM vpopmail WHERE pw_domain = 'example.com'"
+#+END_SRC

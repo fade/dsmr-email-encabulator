@@ -4,3 +4,4 @@ doc/README.ucspi-ssl.dsmr
 doc/README.qmail.dsmr
 doc/README.vpopmail.dsmr
 doc/README.dovecot-vpopmail.dsmr
+doc/README.vpasswd-postgres-convert.dsmr

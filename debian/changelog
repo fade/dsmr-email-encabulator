@@ -1,3 +1,45 @@
+dsmr-email-encabulator (1.0-14) trixie; urgency=low
+
+  * Depend on dsmr-email-admin (>= 1.0-1), the stack health-check and repair
+    tool, so a full install ships the 'dsmr-email-admin check/fix/selftest'
+    administration command.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Wed, 03 Jun 2026 12:11:30 -0400
+
+dsmr-email-encabulator (1.0-13) trixie; urgency=low
+
+  * Pull in dsmr-checkpassword-dovecot (>= 1.0-2) so SMTP-AUTH for both
+    vpopmail virtual users and curated system users works out of the box
+    on a fresh metapackage install or upgrade.
+  * Bump dsmr-qmail-run dependency to >= 1.0-9 so the submission run
+    script's auto-detection of the bridge is in place.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sun, 10 May 2026 17:00:00 -0400
+
+dsmr-email-encabulator (1.0-12) trixie; urgency=low
+
+  * Fix vpasswd-postgres-convert: handle legacy 8-field clear-passwd format
+
+ -- Brian O'Reilly <fade@deepsky.com>  Mon, 13 Apr 2026 13:08:27 -0400
+
+dsmr-email-encabulator (1.0-11) trixie; urgency=low
+
+  * Add vpasswd-postgres-convert migration; fix dovecot-mysql→pgsql dependency
+
+ -- Brian O'Reilly <fade@deepsky.com>  Mon, 13 Apr 2026 12:34:57 -0400
+
+dsmr-email-encabulator (1.0-10) trixie; urgency=low
+
+  * Raise default softlimit from 12MB to 100MB for modern shared library requirements
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sun, 05 Apr 2026 22:52:53 -0400
+
+dsmr-email-encabulator (1.0-9) trixie; urgency=low
+
+  * Fix qmail-uids-gids postinst: make user/group creation idempotent for legacy systems
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sun, 05 Apr 2026 22:32:41 -0400
+
 dsmr-email-encabulator (1.0-8) trixie; urgency=low
 
   * dsmr-verify: self-contained fixture setup/teardown (example.com domain,

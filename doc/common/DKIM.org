@@ -1,0 +1,75 @@
+#+TITLE: DKIM and SPF DNS Records — outrider.deepsky.com
+#+DATE: 2026-04-03
+
+* Primary Domain: deepsky.com
+
+** DKIM
+
+Add to the ~deepsky.com~ DNS zone:
+
+#+BEGIN_SRC
+default._domainkey.deepsky.com. 300 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAprCXz2V/6KWpctKvpzlBKRQKzs/4TdK9CGNfPOx3mgLwibTHY/lrc7jfyPzE0bmbbifPGXtP4lBZM5meUi0XSPNiyDsbqzWi3F2oCgI+4rpRYrf/GhM3UYdRBKL53+ZnoOdLL3UnfDvkztEQ7/gd0TR+9aiy/Khb355mv3z9cGUMIqZIAj6H5Ov4tiQk5pkWGYpbVo/wlCf/fUlIwkw72f+cd69q2SDRftTPxfwU0AFpSmK+W55pGAZeLy0A1QoqeS56U5LJJJpbpkSxq4P4pvlZwz7A76Q/RWfcxFT6HZCHqFSpAQsd1C2L6I9bqhIUtVwk6kQ8bRfuUgUjifKeWQIDAQAB"
+#+END_SRC
+
+Private key: ~/etc/qmail/domainkeys/deepsky.com:default~
+Public key:  ~/etc/qmail/domainkeys/deepsky.com:default.pub~
+Selector:    ~default~
+
+** SPF
+
+Add to the ~deepsky.com~ zone (and each other hosted domain that sends outbound mail):
+
+#+BEGIN_SRC
+@ IN TXT "v=spf1 ip4:198.96.117.252 ~all"
+#+END_SRC
+
+Outbound IP: 198.96.117.252
+
+The ~softfail~ (~all) is appropriate until outbound delivery is confirmed
+clean.  Tighten to ~-all~ (hardfail) once satisfied.
+
+* Additional Hosted Domains
+
+The DKIM key above covers ~deepsky.com~ only (the value in ~/etc/qmail/me~).
+Each additional domain that sends outbound mail needs either:
+
+- The same ~default._domainkey.deepsky.com~ record copied into its own zone
+  (fine for low-volume domains sharing the same identity), or
+- Its own key generated on the server:
+
+#+BEGIN_SRC sh
+DOMAIN=example.com
+SELECTOR=default
+KEYDIR=/etc/qmail/domainkeys
+
+# Generate key
+openssl genrsa -out "${KEYDIR}/${DOMAIN}:${SELECTOR}" 2048
+chmod 640 "${KEYDIR}/${DOMAIN}:${SELECTOR}"
+chown root:qmail "${KEYDIR}/${DOMAIN}:${SELECTOR}"
+
+# Export public key for DNS
+openssl rsa -in "${KEYDIR}/${DOMAIN}:${SELECTOR}" -pubout 2>/dev/null \
+  | grep -v -- "^-----" | tr -d '\n' \
+  > "${KEYDIR}/${DOMAIN}:${SELECTOR}.pub"
+
+cat "${KEYDIR}/${DOMAIN}:${SELECTOR}.pub"
+#+END_SRC
+
+Then add to the domain's zone:
+
+#+BEGIN_SRC
+default._domainkey.example.com. 300 IN TXT "v=DKIM1; k=rsa; p=<pubkey>"
+@ IN TXT "v=spf1 ip4:198.96.117.252 ~all"
+#+END_SRC
+
+* Verification
+
+Once DNS has propagated, confirm with:
+
+#+BEGIN_SRC sh
+dig TXT default._domainkey.deepsky.com
+dig TXT deepsky.com
+#+END_SRC
+
+Send a test message to a Gmail or Fastmail address and check the
+~Authentication-Results~ header for ~dkim=pass~ and ~spf=pass~.

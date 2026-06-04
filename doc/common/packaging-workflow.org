@@ -1,0 +1,119 @@
+#+TITLE: DSMR Packaging & Contribution Workflow
+#+AUTHOR: Brian O'Reilly
+#+OPTIONS: toc:2 num:t
+#+STARTUP: overview
+
+How feature work is folded into the DSMR package repositories under the Debian
+git packaging (=git-buildpackage=, gbp) discipline. The goal: do development
+*inside* the package repositories on feature branches, not in an out-of-tree
+scratch area, while keeping the gbp build/release flow intact.
+
+* Repository layout
+Every package is its own git repository, nested under a wrapper directory:
+=<wrapper>/<source>-<version>/=. The wrapper also holds =build-area/=, where
+gbp exports build output.
+
+Two repository classes, two disciplines:
+
+- *Native DSMR packages* — originate with us (=3.0 (native)=): =dsmr-localfirst=,
+  =dsmr-qmail-run=, =dsmr-email-admin=, =dsmr-checkpassword-dovecot=,
+  =dsmr-email-encabulator=. The package *is* the source; feature work and
+  packaging share one tree.
+- *Upstream-based packages* — =qmail=, =vpopmail=, =ucspi-ssl=, =fehqlibs=,
+  =dovecot-vpopmail=. Changes are quilt patches in =debian/patches/= on the
+  packaging branch; upstream releases live on =upstream/latest=. The feature
+  branching below still applies, but the "work" is patch-queue maintenance.
+
+* Branches
+- *Packaging / integration branch* (the gbp =debian-branch=): =main= for native
+  DSMR packages, =debian/latest= for upstream-based packages and the metapackage.
+  gbp always builds *this* branch (it exports =HEAD=).
+- *Feature branches*: =feature/<topic>=, branched off the packaging branch. All
+  development — code, tests, =debian/changelog=, and in-repo docs — happens here.
+
+* Feature lifecycle
+1. Branch off the packaging branch:
+   #+begin_src sh
+   git checkout -b feature/<topic> main      # or: debian/latest
+   #+end_src
+2. Do the work in the repo: source under =src/= (or patches), tests under
+   =test/=, design/operational docs under =doc/=, and a =debian/changelog= entry.
+3. Land it on the packaging branch with a merge commit (keeps the feature a
+   visible unit in history):
+   #+begin_src sh
+   git checkout main
+   git merge --no-ff feature/<topic>
+   git branch -d feature/<topic>
+   #+end_src
+4. Build and tag the release from the packaging branch (see below).
+
+* Building & releasing
+gbp exports the *committed* =HEAD= of the packaging branch — always commit before
+building.
+#+begin_src sh
+  # build into ../build-area (per debian/gbp.conf export-dir):
+  gbp buildpackage --git-ignore-new -us -uc -b
+  # tag the release as debian/<version> (reads debian/changelog):
+  gbp buildpackage --git-ignore-new --git-tag-only
+#+end_src
+On the dedicated build host (Debian Trixie): host tooling cannot run
+=dpkg-buildpackage=, so builds run on the build VM with the repo tree
+virtiofs-mounted at the same path. Use plain =fakeroot= (the gbp default), never
+=sudo= (sudo over the shared mount breaks ownership and lintian).
+
+Publishing (reprepro + rsync to the production mirror) is a separate, deliberate
+step driven by =maintainer-scripts/rebuild-all.sh=; it is never part of a feature
+merge.
+
+* Documentation discipline
+- *Package-specific docs* (design specs, ADRs, runbooks) live in the package's
+  own =doc/= directory and are shipped to =/usr/share/doc/<pkg>/= via
+  =debian/<pkg>.docs=. Debian policy already requires a =/usr/share/doc/<pkg>/=
+  entry; the package's own design/operational docs belong there too, so they
+  travel with the package.
+- *Stack docs* live in a metapackage's =doc/= tree, split by architecture
+  profile so the composite carries into any stack metapackage:
+  - =doc/common/= — the *architecture-neutral* core: the base qmail-layer
+    component notes, the development log, research, task tracking, DKIM, this
+    workflow, and =common/index.org=. This subtree is carried *verbatim* into
+    every stack metapackage (the full =dsmr-email-encabulator= profile, and any
+    narrower profile such as a future =dsmr-mta-only=).
+  - =doc/= root — the *profile-specific* docs: that metapackage's architecture
+    overview and =index.org=, its profile-only component notes and runbooks, and
+    its reference manual. The full profile keeps the vpopmail/dovecot notes, the
+    legacy/host upgrade notes, and the texinfo manual here; a narrower profile
+    ships its own (e.g. a system-only architecture overview and runbook).
+  Each metapackage's =index.org= links down into =common/index.org=.
+  (Until a second profile metapackage exists, =doc/common/= simply lives in the
+  encabulator repo; when one is created it either copies =doc/common/= in or the
+  core is factored into a shared docs package — both honour this layout.)
+- *Never* leave design or planning work in an out-of-tree scratch directory.
+- *Major manuals register with doc-base.* A package that ships a substantial
+  manual provides a =debian/<pkg>.doc-base= control file so doc catalogs
+  (dwww/dhelp/dochelp) index it. The metapackage registers its texinfo manual
+  this way.
+
+* A dedicated documentation package?
+The Debian =<pkg>-doc= idiom is *per source package* and exists to keep large or
+rarely-wanted docs off most installs; cross-source =/usr/share/doc= symlinking
+is forbidden. So our policy is:
+- *Per-package design/operational docs stay in their own package* (shipped to
+  that package's =/usr/share/doc/<pkg>/=). They are never harvested into an
+  aggregate "all docs" package — that is not a Debian idiom and the symlink ban
+  blocks deduplication anyway.
+- *The architecture-neutral composite* (=doc/common/=) currently lives in the
+  metapackage, which is itself conventional (a metapackage may carry
+  cross-cutting docs). When a *second* profile metapackage exists (e.g.
+  =dsmr-mta-only=), promote =doc/common/= into a standalone =dsmr-email-doc=
+  package (=Section: doc=, =Architecture: all=, its own copyright + changelog),
+  which each profile metapackage =Recommends=. This mirrors the =debian-reference=
+  precedent (cross-cutting docs as their own source package) and is the
+  drift-free realisation of "carry into any metapackage". The =common/= vs
+  profile split already pre-stages that extraction; do not create the package
+  before the second consumer exists.
+
+* Commit conventions
+Imperative subject, conventional-commits prefix with a *subsystem* scope (never
+a planning index). Describe *what* changed and *why*, never *how* (the code is
+the record of how). No AI/agent attribution. Every commit body and PR body ends
+with the maintainer attribution footer.

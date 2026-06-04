@@ -1,7 +1,8 @@
-doc/DEVLOG.org
-doc/README.fehqlibs.dsmr
-doc/README.ucspi-ssl.dsmr
-doc/README.qmail.dsmr
+doc/index.org
+doc/client-configuration.org
+doc/common
+doc/UPGRADE_LEGACY.org
+doc/OUTRIDER-UPGRADE.org
 doc/README.vpopmail.dsmr
 doc/README.dovecot-vpopmail.dsmr
 doc/README.vpasswd-postgres-convert.dsmr

@@ -1,0 +1,112 @@
+#+TITLE: Configuring External Mail Clients (full-stack profile)
+#+AUTHOR: Brian O'Reilly
+#+OPTIONS: toc:2 num:t
+#+STARTUP: overview
+
+How to configure an external mail client (Thunderbird, Apple Mail, Outlook,
+mobile, mutt, …) to read and send mail through a DSMR host, for both account
+types the full stack serves: *system accounts* (shell/Unix users) and *vpopmail
+accounts* (virtual users).
+
+Substitute your own values for the placeholders:
+
+| Placeholder | Example          | Meaning                              |
+|-------------+------------------+--------------------------------------|
+| =MAILHOST=  | mail.example.com | the mail server FQDN                 |
+| =DOMAIN=    | example.com      | a hosted mail domain                 |
+
+* Server settings at a glance
+| Purpose          | Protocol | Host       | Port | Security        | Auth          |
+|------------------+----------+------------+------+-----------------+---------------|
+| Reading (IMAP)   | IMAP     | =MAILHOST= |  993 | SSL/TLS         | password      |
+| Reading (IMAP)   | IMAP     | =MAILHOST= |  143 | STARTTLS        | password      |
+| Sending (submit) | SMTP     | =MAILHOST= |  587 | STARTTLS        | password      |
+
+- *TLS is mandatory.* The server sets =ssl = required=, so a client must use
+  SSL/TLS (port 993) or STARTTLS (port 143); plaintext IMAP is refused. The
+  submission port (587) requires STARTTLS and always requires authentication.
+- *POP3 is not offered* by default; use IMAP.
+- *Implicit-TLS submission (port 465) is not offered*; use 587 + STARTTLS.
+- The server certificate is =/etc/qmail/servercert.pem=. If it is self-signed,
+  import it into the client (or accept it once) to avoid TLS warnings.
+- The same credentials work for *both* reading and sending — the server
+  authenticates IMAP and submission against one chained source
+  (vpopmail SQL → =/etc/dovecot/system-passwd= → PAM).
+
+* Account types and usernames
+This is the only thing that differs between the two populations:
+
+| Account type    | Username to enter    | Password                                            |
+|-----------------+----------------------+-----------------------------------------------------|
+| vpopmail (virtual) | full address =user@DOMAIN= | the mailbox password (set with =vpasswd= / vpopmail) |
+| system (shell)  | the Unix login =user= | the mail password from =/etc/dovecot/system-passwd= (set with =dsmr-smtpauth=, intentionally separate from the Unix login password) |
+
+Use the *same* username/password pair in both the incoming (IMAP) and outgoing
+(SMTP) sections of the client.
+
+* Reading mail (IMAP)
+Common settings for any client:
+- Server / hostname: =MAILHOST=
+- Port / security: =993= with SSL/TLS (preferred), or =143= with STARTTLS
+- Authentication: normal password (the server offers PLAIN/LOGIN over TLS)
+- Mailbox layout: Maildir; INBOX is the Maildir root (=~/Maildir=). New mail
+  arrives in =~/Maildir/new/=.
+
+** vpopmail account
+- Username: =user@DOMAIN= (the full email address)
+- Password: the mailbox password
+
+** system account
+- Username: =user= (the Unix login name, e.g. =alice=)
+- Password: the account's mail password from =/etc/dovecot/system-passwd=
+- The account must have a =system-passwd= entry with full uid/gid/home/shell
+  (created by =dsmr-smtpauth=); dovecot uses the home to locate =~/Maildir=.
+  A bare =user:hash= entry authenticates but breaks IMAP because dovecot 2.4
+  needs the home directory from the userdb.
+
+* Sending mail (SMTP submission)
+Common settings for any client:
+- Server / hostname: =MAILHOST=
+- Port: =587=, connection security: STARTTLS
+- Authentication: required, normal password (PLAIN/LOGIN over TLS)
+- Note: authentication is mandatory on 587 — an unauthenticated client cannot
+  relay. Once authenticated, the client may send to any destination.
+
+** vpopmail account
+- Username: =user@DOMAIN=
+- Password: the mailbox password (same as IMAP)
+
+** system account
+- Username: =user= (the Unix login). Some clients insist the SMTP username
+  equal the full email address; =user@DOMAIN= also works — the submission
+  bridge strips the domain before checking =system-passwd=.
+- Password: the =system-passwd= mail password (same as IMAP)
+
+* Worked example (Thunderbird / generic client)
+For a vpopmail user =alice@example.com= on host =mail.example.com=:
+
+| Field                    | Incoming (IMAP)      | Outgoing (SMTP)      |
+|--------------------------+----------------------+----------------------|
+| Server                   | mail.example.com     | mail.example.com     |
+| Port                     | 993                  | 587                  |
+| Connection security      | SSL/TLS              | STARTTLS             |
+| Authentication           | Normal password      | Normal password      |
+| Username                 | alice@example.com    | alice@example.com    |
+
+For a system user =alice= on the same host, use username =alice= (and the
+=system-passwd= password) in both columns; all other fields are identical.
+
+* Troubleshooting
+- *TLS / certificate warning* — expected with a self-signed
+  =/etc/qmail/servercert.pem=; import or trust the certificate.
+- *IMAP login fails for a system user* — confirm the account is listed:
+  =dsmr-smtpauth list=; confirm the entry has uid/gid/home/shell (not a bare
+  hash). Re-set the password with =dsmr-smtpauth passwd user=.
+- *IMAP login fails for a vpopmail user* — verify with
+  =vuserinfo user@DOMAIN= and reset with =vpasswd user@DOMAIN=.
+- *Sending rejected with "relaying denied"* — the outgoing server is not
+  authenticating; ensure the client uses port 587 with authentication enabled.
+- *Sending rejected with 5xx on a local recipient* — recipient validation; see
+  the system-first routing docs shipped with =dsmr-localfirst=.
+- *Plaintext connection refused* — TLS is required; switch the client to
+  SSL/TLS or STARTTLS.

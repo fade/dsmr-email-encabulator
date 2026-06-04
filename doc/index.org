@@ -1,0 +1,53 @@
+#+TITLE: DSMR Mail Stack — Full Stack (encabulator profile)
+#+AUTHOR: Brian O'Reilly
+#+OPTIONS: toc:2 num:nil
+#+STARTUP: overview
+
+Documentation root for the *full* DSMR stack as installed by
+=dsmr-email-encabulator= — the "everything" profile: qmail + vpopmail virtual
+users + dovecot IMAP, with system-first recipient routing on hybrid domains.
+
+The architecture-neutral core (base qmail layer, dev log, research, DKIM,
+packaging workflow) is in [[file:common/index.org][common/index.org]] and is shared with every stack
+profile. This file documents what the full profile adds on top.
+
+* Profile architecture
+On top of the common base layer (=fehqlibs -> libsrs2 -> ucspi-ssl -> qmail=),
+the full profile adds:
+
+: + vpopmail (PostgreSQL virtual users) + dovecot-vpopmail (IMAP)
+: + dsmr-qmail-run (supervised services)
+: + dsmr-checkpassword-dovecot (system + virtual SMTP-AUTH)
+: + dsmr-localfirst (system-first recipient routing on hybrid domains)
+
+A texinfo reference manual is shipped: =dsmr-email-encabulator.info=
+(source =dsmr-email-encabulator.texi=).
+
+* Profile component notes
+The vpopmail/dovecot layer that distinguishes this profile:
+- [[file:README.vpopmail.dsmr][README.vpopmail.dsmr]]
+- [[file:README.dovecot-vpopmail.dsmr][README.dovecot-vpopmail.dsmr]]
+- [[file:README.vpasswd-postgres-convert.dsmr][README.vpasswd-postgres-convert.dsmr]]
+
+Migration / host operations:
+- [[file:UPGRADE_LEGACY.org][UPGRADE_LEGACY.org]]
+- [[file:OUTRIDER-UPGRADE.org][OUTRIDER-UPGRADE.org]]
+
+* Per-package documentation
+Each package ships its own design and operational docs under its own
+=/usr/share/doc/<pkg>/=:
+
+| Package                    | Notable docs                                          |
+|----------------------------+-------------------------------------------------------|
+| dsmr-localfirst            | SPEC-system-first-routing.md, DEPLOY-system-first.org |
+| dsmr-checkpassword-dovecot | README.md, DESIGN.md                                  |
+| dsmr-email-admin           | README.md, dsmr-email-admin(8)                        |
+
+* Configuring external mail clients
+How to set up Thunderbird/Apple Mail/mobile/etc. to read (IMAP) and send (SMTP
+submission) for both system accounts and vpopmail accounts:
+[[file:client-configuration.org][client-configuration.org]].
+
+* Validation
+After installation, run =dsmr-verify= to confirm the stack is operational
+(expected: 62/62 PASS on a vpopmail-enabled host).

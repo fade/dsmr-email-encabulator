@@ -1,0 +1,36 @@
+#+TITLE: DSMR Mail Stack — Common Documentation
+#+AUTHOR: Brian O'Reilly
+#+OPTIONS: toc:2 num:nil
+#+STARTUP: overview
+
+This is the *architecture-neutral* documentation core for the DSMR mail stack.
+It is carried, unchanged, by every stack metapackage (the full
+=dsmr-email-encabulator= profile, and any narrower profile such as a future
+=dsmr-mta-only=). Profile-specific architecture and runbooks live in each
+metapackage's own =index.org= one level up, which links here.
+
+* The base layer
+Every DSMR profile is built on the same qmail foundation, layered bottom-up:
+
+: fehqlibs-dev -> libsrs2 -> ucspi-ssl -> qmail (+ qmail-uids-gids)
+
+What a given profile adds on top of this base (vpopmail, dovecot, system-first
+routing, …) is described by that profile's own documentation.
+
+Base-layer component notes:
+- [[file:README.qmail.dsmr][README.qmail.dsmr]]
+- [[file:README.ucspi-ssl.dsmr][README.ucspi-ssl.dsmr]]
+- [[file:README.fehqlibs.dsmr][README.fehqlibs.dsmr]]
+
+* Stack topics (profile-independent)
+| Topic                 | Document                              |
+|-----------------------+---------------------------------------|
+| Development log       | [[file:DEVLOG.org][DEVLOG.org]]              |
+| Research & background | [[file:RESEARCH.org][RESEARCH.org]]            |
+| Task / work tracking  | [[file:TASKS.org][TASKS.org]]                  |
+| DKIM signing          | [[file:DKIM.org][DKIM.org]]                    |
+
+* Packaging & contribution workflow
+How feature work is folded into the package repositories under the Debian git
+packaging (gbp) discipline, including the documentation-profile convention:
+[[file:packaging-workflow.org][packaging-workflow.org]].

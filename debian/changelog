@@ -1,3 +1,22 @@
+dsmr-email-encabulator (1.0-15) trixie; urgency=low
+
+  * Pull in dsmr-localfirst (>= 1.0-1) for system-first recipient routing on
+    hybrid domains, and raise the dsmr-qmail-run floor to >= 1.0-10 for the
+    run-script wiring that activates it.
+  * Add a documentation tree under /usr/share/doc, split by architecture
+    profile: doc/common/ holds the architecture-neutral core (base qmail
+    notes, dev log, research, tasks, DKIM, packaging workflow, common index)
+    that carries into any stack metapackage; doc/ root holds the full-stack
+    profile docs (vpopmail/dovecot notes, upgrade notes, reference manual,
+    profile index).  The stack documentation now lives in the repository
+    rather than an out-of-tree scratch area.
+  * Install the texinfo reference manual into /usr/share/info and register it
+    with doc-base so documentation catalogs index it.
+  * Add an external mail client configuration guide (IMAP reading and SMTP
+    submission, for both system accounts and vpopmail accounts).
+
+ -- Brian O'Reilly <fade@deepsky.com>  Thu, 04 Jun 2026 16:00:00 +0000
+
 dsmr-email-encabulator (1.0-14) trixie; urgency=low
 
   * Depend on dsmr-email-admin (>= 1.0-1), the stack health-check and repair

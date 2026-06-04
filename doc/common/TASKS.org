@@ -1,0 +1,864 @@
+#+TITLE: Qmail Debian Port — Task Plan
+#+AUTHOR: Brian O'Reilly
+#+DATE: 2026-03-21
+#+OPTIONS: toc:3 num:t
+#+TODO: TODO IN-PROGRESS BLOCKED | DONE CANCELLED
+
+* Overview
+
+This plan tracks all work required to complete the qmail Debian port,
+from fixing the package builds through to a fully operational mail server
+in the Debian VM. See RESEARCH.org for full context.
+
+*Primary source to package*: ~dsmr-qmail/dsmr-qmail-1.06.3/~ (sagredo-dev patched qmail).
+*Target platform*: Debian 13 Trixie (amd64).
+*VM*: ~debian13~ at ~192.168.122.184~, SSH via ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~.
+*Reference guide*: https://notes.sagredo.eu/en/qmail-notes-185/configuring-qmail-83.html
+
+* Phase 0: Git-Buildpackage Repository Setup
+:PROPERTIES:
+:DESCRIPTION: Establish the DEP-14 gbp workflow on GitHub before any packaging work
+:END:
+
+All gbp tooling is already installed in the VM: ~git-buildpackage~ 0.9.38,
+~pristine-tar~ 1.50, ~devscripts~, ~dh-make~, ~lintian~.
+
+** TODO Create the dsmr-qmail GitHub repository
+
+The current packaging work lives at ~github.com/fade/netqmail~. The new canonical
+home will be ~github.com/fade/dsmr-qmail~.
+
+- [ ] Create new repository ~dsmr-qmail~ on GitHub (web UI or ~gh repo create~)
+- [ ] Do not initialise with a README — it will be populated from the existing repo
+
+** TODO Rename branches to DEP-14 conventions and push to new remote
+
+The existing ~dsmr-qmail-1.06.3/~ git repo has:
+- ~main~ — unmodified sagredo-dev upstream source → becomes ~upstream/latest~
+- ~fade-package~ — upstream + ~debian/~ packaging work → becomes ~debian/latest~
+
+#+begin_src bash
+cd /home/fade/SourceCode/debian/dsmr-qmail/dsmr-qmail-1.06.3
+
+# Rename branches locally
+git branch -m main upstream/latest
+git branch -m fade-package debian/latest
+
+# Add the new remote
+git remote rename origin old-netqmail
+git remote add origin git@github.com:fade/dsmr-qmail.git
+
+# Push all branches and any existing tags
+git push origin upstream/latest debian/latest --tags
+git push origin --set-upstream debian/latest
+#+end_src
+
+- [ ] Rename ~main~ to ~upstream/latest~
+- [ ] Rename ~fade-package~ to ~debian/latest~
+- [ ] Add new remote pointing to ~github.com/fade/dsmr-qmail~
+- [ ] Push both branches and tags
+- [ ] Set ~debian/latest~ as the default branch in GitHub settings
+
+** TODO Add debian/gbp.conf to the packaging branch
+
+While on ~debian/latest~:
+
+#+begin_src bash
+git checkout debian/latest
+cat > debian/gbp.conf << 'EOF'
+[DEFAULT]
+upstream-branch = upstream/latest
+debian-branch = debian/latest
+upstream-tag = %(version)s
+pristine-tar = False
+pristine-tar-commit = False
+
+[buildpackage]
+sign-tags = False
+
+[dch]
+auto = True
+EOF
+
+git add debian/gbp.conf
+git commit -m 'debian: add gbp.conf for DEP-14 git-buildpackage workflow'
+git push origin debian/latest
+#+end_src
+
+Notes on this configuration:
+- ~pristine-tar = False~ — upstream is a git repository, not a tarball; no pristine-tar needed
+- ~upstream-tag = %(version)s~ — adjust to match the actual tag format used in sagredo-dev/qmail
+  (check with ~git tag~ in the upstream repo; may be e.g. ~v1.06.3~ or just ~1.06.3~)
+- ~sign-tags = False~ — local/private packaging, no GPG signing required for now
+
+- [ ] Create and commit ~debian/gbp.conf~
+- [ ] Verify ~git log --oneline --graph upstream/latest debian/latest~ shows correct topology
+
+** TODO Configure local gbp user settings on the VM
+
+#+begin_src bash
+# On the VM, ensure ~/.gbp.conf exists with sensible defaults
+cat > ~/.gbp.conf << 'EOF'
+[DEFAULT]
+upstream-branch = upstream/latest
+debian-branch = debian/latest
+pristine-tar = False
+
+[buildpackage]
+sign-tags = False
+EOF
+#+end_src
+
+- [ ] Create ~~/.gbp.conf~ on the VM for the ~fade~ user
+
+** TODO Verify the repository topology
+
+#+begin_src bash
+cd /home/fade/SourceCode/debian/dsmr-qmail/dsmr-qmail-1.06.3
+git log --oneline --graph --all | head -20
+gbp buildpackage --git-ignore-new --no-check-builddeps -nc --git-verbose 2>&1 | head -30
+#+end_src
+
+- [ ] Confirm gbp can see the correct upstream and debian branches
+- [ ] ~debian/latest~ contains the ~debian/~ directory; ~upstream/latest~ does not
+
+* Phase 1: Fix and Build the Core qmail Package
+:PROPERTIES:
+:DESCRIPTION: Build dsmr-qmail-1.06.3 as a proper Debian package for Trixie using gbp
+:END:
+
+** TODO Review and update dsmr-qmail debian/control
+:PROPERTIES:
+:PRIORITY: A
+:END:
+
+The control file at ~dsmr-qmail/dsmr-qmail-1.06.3/debian/control~ needs updates:
+
+- [ ] Update ~Standards-Version~ from 3.9.3.1 to 4.6.2 (current for Trixie)
+- [ ] Add missing Build-Depends:
+  - ~libsrs2-dev~ (required by SRS patch — must be built first; see Phase 2)
+  - ~libidn2-dev~ (required by EAI/SMTPUTF8 support)
+  - ~libmariadb-dev | libmysqlclient-dev~ (required if vpopmail MySQL is a
+    compile-time dep of chkuser — investigate whether chkuser links to vpopmail
+    at build time or looks it up at runtime)
+  - ~debhelper-compat (= 13)~ (replace old implicit debhelper usage)
+- [ ] Verify ~Depends:~ lines include ~${shlibs:Depends}~ and ~${misc:Depends}~
+- [ ] Decide on Debian package version string, e.g., ~1.06.3-1~
+
+** TODO Review and update dsmr-qmail debian/rules
+:PROPERTIES:
+:PRIORITY: A
+:END:
+
+- [ ] Read the existing ~debian/rules~ in ~dsmr-qmail-1.06.3/debian/~
+- [ ] Compare with ~netqmail-1.06/debian/~ rules (the plain Debian package)
+- [ ] Compare with the older Buster rules from ~dsmr-qmail/netqmail_1.06-6.2~deb10u1.tar.gz~
+- [ ] Ensure ~conf-qmail~ sets the correct install path
+  - Debian convention: ~/var/lib/qmail/~ with ~/var/lib/qmail/control -> /etc/qmail~
+  - Verify the symlink setup is present in postinst
+- [ ] Ensure ~conf-cc~ includes correct compiler flags for Bookworm (gcc flags, OpenSSL 3.x paths)
+- [ ] Ensure ~CFLAGS~ and ~LDFLAGS~ are passed through from dpkg-buildflags
+- [ ] Ensure ~-lssl~ and ~-lcrypto~ are linked correctly for TLS patch
+- [ ] Ensure ~-lsrs2~ is linked for SRS patch
+- [ ] Ensure ~-lidn2~ is linked for EAI support
+- [ ] Check that ~dh_auto_build~ override handles the DJB-style make correctly
+- [ ] Add override for ~dh_auto_install~ to copy binaries to correct locations
+- [ ] Add ~dh_shlibdeps~ to compute correct Depends at build time
+
+** TODO Create proper debian/changelog entry for dsmr-qmail
+:PROPERTIES:
+:PRIORITY: B
+:END:
+
+Use ~gbp dch~ to generate changelog entries from git commit messages. For the
+initial entry, create it manually or with ~dch --create~:
+
+#+begin_src bash
+cd /home/fade/SourceCode/debian/dsmr-qmail/dsmr-qmail-1.06.3
+git checkout debian/latest
+
+# Create initial changelog (if none exists yet)
+dch --create --package netqmail --newversion 1.06.3-1 \
+    --distribution UNRELEASED \
+    'First Debian packaging of sagredo-dev qmail 1.06.3 with all patches.'
+
+# Or auto-generate from commits
+gbp dch --snapshot --auto
+#+end_src
+
+- [ ] Version: ~1.06.3-1~ (distribution ~UNRELEASED~ until ready to release)
+- [ ] Describe the sagredo patch set (TLS, DKIM, SPF, SRS, chkuser, etc.)
+- [ ] Commit: ~git add debian/changelog && git commit -m 'debian: initial changelog'~
+
+** TODO Set debian/source/format
+
+The dsmr-qmail source has all patches integrated directly into the git tree
+(not as quilt patches). The correct source format depends on how gbp exports
+the orig tarball:
+
+- [ ] Set ~debian/source/format~ to ~3.0 (quilt)~ with an empty ~debian/patches/series~
+  (gbp will generate the orig from ~upstream/latest~ and the diff becomes the
+  ~debian/~ directory — this is the standard gbp approach), OR
+- [ ] Set to ~3.0 (native)~ if the package is treated as Debian-native (no separate
+  upstream tarball concept) — simpler but unconventional
+
+Recommended: ~3.0 (quilt)~ with empty series. Create:
+
+#+begin_src bash
+mkdir -p debian/source
+echo '3.0 (quilt)' > debian/source/format
+echo '' > debian/patches/series
+git add debian/source/format debian/patches/series
+git commit -m 'debian: set source format to 3.0 (quilt)'
+#+end_src
+
+** TODO Run first gbp build
+
+Prerequisites: Phase 2 steps for libsrs2 1.0.18 and qmail-uids-gids must be
+installed in the VM first.
+
+gbp generates the orig tarball from the ~upstream/latest~ branch automatically:
+
+#+begin_src bash
+cd /home/fade/SourceCode/debian/dsmr-qmail/dsmr-qmail-1.06.3
+
+# Build without signing (-us -uc), using current working tree
+gbp buildpackage --git-upstream-branch=upstream/latest \
+                 --git-debian-branch=debian/latest \
+                 --git-export-dir=../build-area \
+                 -us -uc
+#+end_src
+
+The ~--git-export-dir~ places build artefacts in ~dsmr-qmail/build-area/~ to
+keep the source tree clean.
+
+- [ ] Resolve any compilation errors
+- [ ] Common expected issues on Trixie (gcc 14, OpenSSL 3.x):
+  - Deprecated OpenSSL ~RSA_*~ / ~EVP_*~ API usage in TLS patch
+  - vpopmail header path for chkuser (build-time dependency)
+  - New gcc warning flags treated as errors
+- [ ] Verify all expected binaries are produced:
+  - ~qmail-smtpd~, ~qmail-remote~, ~qmail-send~, ~qmail-local~, ~qmail-queue~
+  - ~qmail-dkim~, ~dkim~, ~dkim-newkey~
+  - ~spawn-filter~, ~srsfilter~, ~surblfilter~
+  - ~tcp-env~
+
+** TODO Verify package contents and install paths
+
+After successful build, artefacts are in ~dsmr-qmail/build-area/~:
+
+#+begin_src bash
+dpkg -c build-area/qmail_*.deb
+#+end_src
+
+- [ ] Confirm binaries land in ~/usr/sbin/~ and ~/usr/bin/~
+- [ ] Confirm ~/var/lib/qmail/~ tree is created
+- [ ] Confirm ~/var/lib/qmail/control -> /etc/qmail~ symlink is set up by postinst
+- [ ] Test install in VM via the shared path:
+  #+begin_src bash
+  ssh -i ~/.ssh/id_rsa root@192.168.122.184 \
+    'dpkg -i /home/fade/SourceCode/debian/dsmr-qmail/build-area/qmail-uids-gids_*.deb \
+             /home/fade/SourceCode/debian/dsmr-qmail/build-area/qmail_*.deb'
+  #+end_src
+- [ ] Run ~lintian build-area/qmail_*.changes~ and address any errors (warnings can follow later)
+
+* Phase 2: Build Supporting Packages
+:PROPERTIES:
+:DESCRIPTION: Build all dependency packages needed by dsmr-qmail and the mail server
+:END:
+
+** TODO Build libsrs2 version 1.0.18
+:PROPERTIES:
+:PRIORITY: A
+:END:
+
+Source is already present at ~libsrs2/libsrs2-1.0.18/~ but current .deb is v1.0.11.
+
+- [ ] Check whether ~libsrs2-1.0.18/~ has a ~debian/~ directory, or use the one
+  from ~libsrs2_1.0.11-1.1.tar.gz~ as a base
+- [ ] Update the version in debian/changelog to 1.0.18-1
+- [ ] Build: ~dpkg-buildpackage -us -uc -b~ from ~libsrs2-1.0.18/~
+- [ ] Install: ~dpkg -i libsrs2_1.0.18-1_amd64.deb libsrs2-dev_1.0.18-1_amd64.deb~
+- [ ] This must be done BEFORE building dsmr-qmail
+
+** TODO Install daemontools from Trixie archive
+:PROPERTIES:
+:PRIORITY: A
+:END:
+
+Debian 13 Trixie ships ~daemontools 1:0.76-14~ and ~daemontools-run~ in the
+official archive. The local ~daemontools-0.76/~ source tree (version 0.76-10)
+is superseded and does not need to be built.
+
+#+begin_src bash
+ssh -i ~/.ssh/id_rsa fade@192.168.122.184 \
+  'sudo apt-get install -y daemontools daemontools-run'
+#+end_src
+
+- [ ] Install daemontools and daemontools-run via apt in the VM
+- [ ] The local ~daemontools-0.76/~ source directory can be archived or removed
+
+*Note*: If daemontools 0.83 (sagredo fork) features are found to be required,
+a custom packaging task should be added at that point.
+
+** TODO Investigate and package ucspi-tcp6
+:PROPERTIES:
+:PRIORITY: A
+:END:
+
+ucspi-tcp6 v1.13.07 is required for SMTP listener management. It is NOT in
+the Debian archive and must be downloaded and packaged.
+
+- [ ] Fetch source: ~https://www.fehcom.de/ipnet/ucspi-tcp6/ucspi-tcp6-1.13.07.tgz~
+- [ ] Extract and inspect build system (DJB-style ~package/install~)
+- [ ] Create ~debian/~ packaging directory:
+  - ~debian/control~ with Source/Package, Build-Depends, Arch: any
+  - ~debian/rules~ wrapping DJB ~package/install~ target
+  - ~debian/changelog~
+  - ~debian/copyright~
+- [ ] Install dependency: ~apt-get install mandoc~ (required by ucspi-tcp6 1.13.05+)
+- [ ] Build and test
+- [ ] Package must provide ~tcpserver~ in ~/usr/bin/~ or ~/usr/sbin/~
+
+*Alternative*: Debian's ~ucspi-tcp-ipv6~ or ~ucspi-tcp~ packages may serve if
+they provide a compatible ~tcpserver~. Investigate compatibility first.
+
+** TODO Investigate and package ucspi-ssl
+:PROPERTIES:
+:PRIORITY: B
+:END:
+
+ucspi-ssl v0.13.07 is required for port 465 (implicit SSL) SMTP. Provides ~sslserver~.
+
+- [ ] Fetch source: ~https://www.fehcom.de/ipnet/ucspi-ssl/ucspi-ssl-0.13.07.tgz~
+- [ ] Inspect build system (DJB-style, depends on fehQlibs)
+- [ ] Determine if fehQlibs is needed and if it must also be packaged
+- [ ] Create ~debian/~ packaging
+- [ ] Build and test ~sslserver~ binary
+- [ ] Note: Debian 12 has had known symlink issues with ucspi-ssl; use latest version
+
+** DONE Verify fastforward availability
+:PROPERTIES:
+:PRIORITY: B
+:END:
+
+~fastforward 1:0.51-10~ is available in the Debian 13 Trixie archive.
+No custom packaging required.
+
+#+begin_src bash
+sudo apt-get install -y fastforward
+#+end_src
+
+** TODO Package vpopmail
+:PROPERTIES:
+:PRIORITY: B
+:END:
+
+This is the most complex dependency. vpopmail handles virtual domain user management.
+
+*** Decide on version
+- Sagredo recommends v5.6.13 from https://github.com/sagredo-dev/vpopmail
+- Working directory ~vpopmail/~ is a locally modified version
+- Decision needed: use local ~vpopmail/~ dir or fetch sagredo 5.6.13
+
+*** Decide on backend
+- MySQL/MariaDB: production-grade, requires database setup
+- CDB: simpler, file-based, suitable for initial testing
+
+*** Steps
+- [ ] Obtain chosen version source
+- [ ] Install build deps: ~apt-get install libmariadb-dev~ (or ~libmysqlclient-dev~)
+  and/or ~libcdb-dev~ depending on backend choice
+- [ ] Create ~debian/~ packaging:
+  - ~debian/control~: Source, Package (vpopmail + vpopmail-dev), Build-Depends
+  - ~debian/rules~: configure with ~--enable-mysql~ or ~--enable-cdb~
+  - ~debian/postinst~: create ~vpopmail~ user (UID 89) and ~vchkpw~ group (GID 89)
+  - ~debian/changelog~
+- [ ] If using Dovecot integration: apply ~vpopmail-dovecot.patch~
+- [ ] Build and test
+- [ ] ~vpopmail~ must be installed (or at minimum headers must be available)
+  BEFORE building dsmr-qmail if chkuser links against it at compile time
+
+*Note on chkuser*: The chkuser patch in dsmr-qmail calls vpopmail functions
+(~vauth_getpw~, etc.) at SMTP time. It may link directly to libvpopmail.a or
+use a dlopen approach. If it links statically, vpopmail must be available at
+dsmr-qmail build time.
+
+** TODO Verify qmail-uids-gids is correctly installed in VM
+
+The ~qmail-uids-gids~ package must be installed before ~qmail~. It creates
+system users: ~qmaild~, ~qmaill~, ~qmailp~, ~qmailq~, ~qmailr~, ~qmails~ and
+groups: ~qmail~, ~nofiles~.
+
+- [ ] Check that ~qmail-uids-gids_1.06-9_all.deb~ is the correct version for
+  the dsmr-qmail build (it should be compatible)
+- [ ] Install in VM if not already installed
+
+* Phase 3: VM Setup and Package Installation
+:PROPERTIES:
+:DESCRIPTION: Install all packages in the Debian VM and verify base operation
+:END:
+
+** DONE Confirm Debian VM is accessible
+:PROPERTIES:
+:END:
+
+VM details confirmed:
+- Name: ~debian13~ (system libvirt: ~virsh -c qemu:///system list~)
+- OS: Debian 13 Trixie (kernel 6.12.74+deb13+1-amd64)
+- IP: ~192.168.122.184~
+- SSH: ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~
+- virtiofs share: host ~/home/fade/SourceCode~ → VM ~/home/fade/SourceCode~ (same path)
+- State: running
+
+** TODO Install all built packages in correct order
+
+Installation order matters due to dependencies:
+
+#+begin_src bash
+# All commands run on the VM via SSH or directly inside the VM.
+# The shared virtiofs path is the same on host and VM: /home/fade/SourceCode/debian/
+
+# 1. Users and groups first
+sudo dpkg -i /home/fade/SourceCode/debian/qmail-uids-gids_1.06-9_all.deb
+
+# 2. Libraries (from custom build)
+sudo dpkg -i /home/fade/SourceCode/debian/libsrs2/libsrs2_1.0.18-1_amd64.deb \
+             /home/fade/SourceCode/debian/libsrs2/libsrs2-dev_1.0.18-1_amd64.deb
+
+# 3. VPOPmail (if compile-time dependency of qmail — install before qmail)
+sudo dpkg -i /home/fade/SourceCode/debian/vpopmail_*.deb
+
+# 4. Supplementary tools (from custom build)
+sudo dpkg -i /home/fade/SourceCode/debian/surblhost_0.8.0-1_amd64.deb
+
+# 5. The main qmail package (sagredo-patched, from custom build)
+sudo dpkg -i /home/fade/SourceCode/debian/dsmr-qmail/qmail_1.06.3-1_amd64.deb
+
+# 6. Service supervision — available in Trixie archive
+sudo apt-get install -y daemontools daemontools-run
+
+# 7. SMTP connection handlers
+sudo dpkg -i /home/fade/SourceCode/debian/ucspi-tcp6_1.13.07-1_amd64.deb
+sudo dpkg -i /home/fade/SourceCode/debian/ucspi-ssl_0.13.07-1_amd64.deb   # for port 465
+
+# 8. Alias handling — available in Trixie archive
+sudo apt-get install -y fastforward
+
+# 9. Service scripts (from custom build)
+sudo dpkg -i /home/fade/SourceCode/debian/qmail-run_2.0.2+nmu4_all.deb
+#+end_src
+
+- [ ] Resolve any dependency conflicts
+- [ ] Verify installed files: ~dpkg -L qmail~
+
+** TODO Verify systemd integration for daemontools
+
+The ~qmail-run~ package's NMU added ~daemontools.service~. Verify it works:
+
+- [ ] ~systemctl enable daemontools~
+- [ ] ~systemctl start daemontools~
+- [ ] ~systemctl status daemontools~
+- [ ] Verify svscan is running: ~ps aux | grep svscan~
+
+* Phase 4: Runtime Configuration
+:PROPERTIES:
+:DESCRIPTION: Configure qmail control files, DKIM, SPF, TLS, and service scripts
+:END:
+
+** TODO Configure basic qmail control files
+
+#+begin_src bash
+# Set hostname (replace with actual hostname)
+echo "mail.example.com" > /etc/qmail/me
+echo "mail.example.com" > /etc/qmail/locals
+echo "" > /etc/qmail/defaultdomain
+echo "200" > /etc/qmail/concurrencyincoming
+echo "20" > /etc/qmail/concurrencyremote
+echo "20000000" > /etc/qmail/databytes
+echo "272800" > /etc/qmail/queuelifetime
+echo "30000000" > /etc/qmail/softlimit
+echo "500" > /etc/qmail/maxrcpt
+echo "10" > /etc/qmail/brtlimit
+echo "1" > /etc/qmail/spfbehavior
+#+end_src
+
+- [ ] Set ~me~ to the mail server's FQDN
+- [ ] Confirm ~/var/lib/qmail/control -> /etc/qmail~ symlink exists
+- [ ] Set defaultdelivery:
+  - If using vpopmail: ~echo "| /home/vpopmail/bin/vdelivermail '' delete" > /etc/qmail/defaultdelivery~
+  - For testing without vpopmail: ~echo "./Maildir/" > /etc/qmail/defaultdelivery~
+
+** TODO Create and initialize the qmail queue
+
+- [ ] Run ~qmail-newu~ and ~qmail-newmrh~ if not done by postinst
+- [ ] Verify queue structure: ~/var/lib/qmail/queue/~ (or symlinked ~/var/qmail/queue/~)
+- [ ] Run ~qmail-newq~ to create queue structure if missing
+- [ ] If using BIG-TODO patch: queue may need initialization with hashed structure
+
+** TODO Configure SSL/TLS certificates
+
+For SMTP TLS support:
+
+- [ ] Obtain or generate TLS certificate:
+  - Production: use Let's Encrypt with certbot: ~certbot certonly --standalone -d mail.example.com~
+  - Testing: generate self-signed cert
+- [ ] Place certificate and key where qmail-tls expects them:
+  - ~cert.pem~ and ~key.pem~ in ~/var/qmail/control/~ (or path configured in conf-cc)
+- [ ] Set correct permissions: cert readable by ~qmaild~ user
+- [ ] Configure ~tlsserverciphers~ to restrict weak ciphers:
+  #+begin_src
+  echo "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:!aNULL:!MD5:!DSS" > /etc/qmail/tlsserverciphers
+  #+end_src
+
+** TODO Configure service run scripts for all three SMTP ports
+
+The current ~qmail-run~ scripts must be extended or replaced with run scripts
+that match the sagredo three-port model.
+
+*** Port 25 (inbound SMTP) run script
+
+#+begin_src bash
+# /etc/qmail/qmail-smtpd/run
+exec /usr/bin/tcpserver -H -R -l 0 -x /etc/qmail/tcp.smtp.cdb \
+  -c "$CONCURRENCY" -u "$QMAILDUID" -g "$NOFILESUID" \
+  0 smtp \
+  /var/lib/qmail/bin/qmail-smtpd 2>&1
+#+end_src
+
+Environment variables to set in run script:
+- ~QMAILQUEUE=/var/lib/qmail/bin/qmail-dkim~ (DKIM verification)
+- ~DKIMVERIFY="FGHKLMNOQRTVWp"~
+- ~RELAYCLIENT_NODKIMVERIFY=1~
+- ~SPFBEHAVIOR=1~ (or read from control file)
+
+*** Port 587 (submission) run script
+
+Requires STARTTLS + authentication:
+- ~REQUIREAUTH=1~
+- ~FORCETLS=1~ (or rely on force-tls patch behavior)
+
+*** Port 465 (implicit SSL) run script
+
+Uses ~sslserver~ from ucspi-ssl:
+#+begin_src bash
+exec /usr/bin/sslserver -H -R -l 0 -x /etc/qmail/tcp.smtp.cdb \
+  -c "$CONCURRENCY" -u "$QMAILDUID" -g "$NOFILESUID" \
+  0 smtps \
+  /var/lib/qmail/bin/qmail-smtpd 2>&1
+#+end_src
+
+- [ ] Write port 25 run script
+- [ ] Write port 587 run script
+- [ ] Write port 465 run script (if ucspi-ssl is available)
+- [ ] Write qmail-send rc script with DKIM signing support
+- [ ] Register services with daemontools' svscan
+
+** TODO Configure tcp.smtp access rules
+
+#+begin_src bash
+# /etc/qmail/tcp.smtp
+# Allow relay from localhost
+127.0.0.1:allow,RELAYCLIENT=""
+# Optionally: allow known networks
+# 192.168.1.:allow,RELAYCLIENT=""
+# Default: SMTP only, no relay
+:allow,VERIFY="DEFER"
+#+end_src
+
+- [ ] Create ~/etc/qmail/tcp.smtp~
+- [ ] Create ~/etc/qmail/tcp.submission~ (for port 587, same or different rules)
+- [ ] Compile to CDB: ~tcprules /etc/qmail/tcp.smtp.cdb /etc/qmail/tcp.smtp.tmp < /etc/qmail/tcp.smtp~
+- [ ] Or use ~qmailctl cdb~ if qmailctl script is configured
+
+** TODO Generate DKIM keys
+
+#+begin_src bash
+mkdir -p /etc/qmail/domainkeys
+chown -R qmailr:qmail /etc/qmail/domainkeys
+
+# RSA key (primary)
+dkim-newkey -d example.com -t rsa -b 2048 default
+
+# Optional: ED25519 key (additional signature)
+dkim-newkey -d example.com -t ED25519 ed25519
+#+end_src
+
+- [ ] Generate keys for each served domain
+- [ ] Publish RSA key in DNS: ~default._domainkey.example.com TXT "v=DKIM1; k=rsa; p=..."~
+- [ ] Optionally publish ED25519 key: ~ed25519._domainkey.example.com TXT "v=DKIM1; k=ed25519; p=..."~
+- [ ] Configure ~filterargs~ for qmail-remote signing (see RESEARCH.org DKIM section)
+
+** TODO Configure SPF
+
+- [ ] Publish SPF record in DNS: ~example.com TXT "v=spf1 mx -all"~
+- [ ] Set ~spfbehavior~ control file (1=reject, 2=soft-fail, etc.)
+- [ ] Verify Received-SPF headers are added to incoming mail
+
+** TODO Configure SRS (Sender Rewriting Scheme)
+
+SRS is needed for correct SPF behaviour when forwarding mail.
+
+- [ ] Create SRS secret: ~dd if=/dev/urandom bs=20 count=1 2>/dev/null | base64 > /etc/qmail/srs_secret~
+- [ ] Configure ~srsfilter~ in the qmail-send rc script or filterargs
+- [ ] Verify SRS rewriting works when forwarding a message
+
+** TODO Configure vpopmail domains and users
+
+If vpopmail is being used:
+
+#+begin_src bash
+# Create virtual domain
+/home/vpopmail/bin/vadddomain example.com postmaster_password
+
+# Create test user
+/home/vpopmail/bin/vadduser user@example.com userpassword
+
+# Test vpopmail authentication
+telnet localhost 89
+login user@example.com userpassword
+#+end_src
+
+- [ ] Create at least one virtual domain
+- [ ] Create test user
+- [ ] Test authentication via vpopmaild (port 89)
+- [ ] Configure Dovecot (if desired) using ~vpopmail-dovecot.patch~
+
+* Phase 5: Testing and Validation
+:PROPERTIES:
+:DESCRIPTION: Verify all components work end-to-end
+:END:
+
+** TODO Verify service startup
+
+#+begin_src bash
+qmailctl stat
+#+end_src
+
+Expected output: all supervised services running with uptime
+
+- [ ] All services show running PIDs
+- [ ] No services are in restart loops
+
+** TODO Test basic SMTP on port 25
+
+#+begin_src bash
+telnet localhost 25
+EHLO testclient
+# Expect: 250 capabilities including STARTTLS
+QUIT
+#+end_src
+
+- [ ] Server responds with 220 banner
+- [ ] EHLO lists expected capabilities (STARTTLS, SIZE, AUTH if on submission)
+- [ ] Connection closes cleanly
+
+** TODO Test SMTP AUTH on port 587
+
+#+begin_src bash
+# Using swaks
+swaks --to user@example.com --from sender@external.com \
+  --server localhost --port 587 \
+  --auth login --auth-user user@example.com --auth-password userpassword \
+  --tls
+#+end_src
+
+- [ ] STARTTLS upgrade succeeds
+- [ ] Authentication succeeds
+- [ ] Message is accepted and queued
+
+** TODO Test mail delivery end-to-end
+
+- [ ] Send a test message to a local address
+- [ ] Verify it arrives in the user's Maildir
+- [ ] Check ~qmail-send~ logs for delivery confirmation
+
+** TODO Test DKIM signing
+
+#+begin_src bash
+# Send test email to port25 verifier
+swaks --to check-auth@verifier.port25.com \
+  --from user@example.com \
+  --server localhost --port 587 \
+  --auth login --auth-user user@example.com
+#+end_src
+
+- [ ] Outgoing messages include valid DKIM-Signature header
+- [ ] Port 25 verifier returns pass for DKIM
+- [ ] Verify at https://mxtoolbox.com/dkim.aspx
+
+** TODO Test DKIM verification on incoming mail
+
+- [ ] Send a DKIM-signed message from an external sender
+- [ ] Verify Authentication-Results header is added by qmail-smtpd
+- [ ] Check that DKIM_RESULT environment variable is available in filters
+
+** TODO Test SPF checking
+
+- [ ] Send message from a domain with SPF record
+- [ ] Verify Received-SPF header is added
+- [ ] Test that mail from unauthorized IP is rejected/soft-failed per spfbehavior setting
+
+** TODO Test TLS
+
+#+begin_src bash
+# Test TLS capabilities
+testssl.sh mail.example.com:25
+# Or simpler:
+openssl s_client -starttls smtp -connect mail.example.com:25
+#+end_src
+
+- [ ] STARTTLS on port 25 works
+- [ ] STARTTLS on port 587 works
+- [ ] Implicit SSL on port 465 works (if ucspi-ssl is deployed)
+- [ ] TLS 1.2 and TLS 1.3 are supported
+- [ ] Weak protocols (SSLv3, TLS 1.0) are disabled
+
+** TODO Test chkuser recipient validation
+
+- [ ] Attempt to deliver to a non-existent address
+- [ ] Verify rejection with 5xx at SMTP time (not after queue acceptance)
+- [ ] Verify valid addresses are accepted
+
+** TODO Test queue management
+
+#+begin_src bash
+qmail-qstat     # Queue statistics
+qmail-qread     # Read queued messages
+#+end_src
+
+- [ ] Queue stats show 0 messages after successful delivery
+- [ ] Test bounce handling (send to invalid remote address)
+
+* Phase 6: Documentation and Cleanup
+:PROPERTIES:
+:DESCRIPTION: Update packaging documentation and clean up build artifacts
+:END:
+
+** TODO Write README.Debian for dsmr-qmail package
+
+Document the differences from plain netqmail:
+- [ ] List all patches included and their purposes
+- [ ] Document required companion packages
+- [ ] Document ~/etc/qmail/~ control files and their effects
+- [ ] Document DKIM setup procedure
+- [ ] Document SPF and SRS setup
+- [ ] Reference the sagredo guide
+
+** TODO Update qmail-run for multi-port operation
+
+Consider whether to:
+- [ ] Option A: Update qmail-run package to add port 465 and 587 service scripts
+- [ ] Option B: Create a new package ~qmail-run-sagredo~ or ~qmail-smtpd-extra~
+- [ ] Option C: Document manual setup of additional supervise directories
+
+If extending qmail-run:
+- [ ] Add ~run-qmail-smtpsd~ (port 465)
+- [ ] Add ~run-qmail-submission~ (port 587)
+- [ ] Add ~run-vpopmaild~
+- [ ] Update ~qmailctl~ to handle new services
+- [ ] Update Depends in control file to include ucspi-tcp6
+
+** TODO Clean up obsolete build artifacts
+
+- [ ] Decide whether to keep ~netqmail-1.06/~ (plain Debian package) or remove
+- [ ] Archive or remove ~qmail_1.06-9_amd64.deb~ (wrong package, replace with dsmr build)
+- [ ] Keep ~dsmr-qmail/netqmail_1.06-6.2~deb10u1.*~ as reference
+- [ ] Update RESEARCH.org with any findings from the build process
+
+** TODO Tag the first working release with gbp
+
+Once the build is clean and packages install correctly:
+
+#+begin_src bash
+cd /home/fade/SourceCode/debian/dsmr-qmail/dsmr-qmail-1.06.3
+git checkout debian/latest
+
+# Update changelog to mark release (change UNRELEASED → trixie)
+gbp dch -r --distribution=trixie
+
+# Commit the changelog
+git add debian/changelog
+git commit -m 'debian: release 1.06.3-1'
+
+# Build and create the debian/1.06.3-1 tag
+gbp buildpackage --git-tag --git-export-dir=../build-area -us -uc
+
+# Push branches and new tag to GitHub
+git push origin debian/latest upstream/latest --tags
+#+end_src
+
+- [ ] Changelog entry targets ~trixie~ (not UNRELEASED)
+- [ ] ~debian/1.06.3-1~ tag is created and pushed
+- [ ] ~upstream/1.06.3~ tag exists on ~upstream/latest~
+
+* Appendix: Quick Reference
+
+** Key Paths
+
+| Path | Purpose |
+|---|---|
+| ~/etc/qmail/~ | qmail control files (symlinked from ~/var/lib/qmail/control/~) |
+| ~/var/lib/qmail/~ | qmail home (Debian convention; ~/var/qmail/~ in upstream) |
+| ~/var/lib/qmail/queue/~ | Mail queue |
+| ~/var/lib/qmail/bin/~ | qmail binaries |
+| ~/home/vpopmail/~ | vpopmail home |
+| ~/home/vpopmail/domains/~ | Virtual domain files |
+| ~/etc/qmail/domainkeys/~ | DKIM signing keys |
+| ~/etc/sv/~ or ~/etc/services/~ | daemontools service directories |
+
+** Key Users and Groups
+
+| User | UID | Purpose |
+|---|---|---|
+| ~qmaild~ | varies | SMTP daemon (qmail-smtpd) |
+| ~qmaill~ | varies | Logger |
+| ~qmailp~ | varies | Password checker |
+| ~qmailq~ | varies | Queue manager |
+| ~qmailr~ | varies | Remote delivery |
+| ~qmails~ | varies | Sender |
+| ~vpopmail~ | 89 | Virtual user manager |
+| ~vchkpw~ | group 89 | Virtual user auth group |
+
+** Key Commands
+
+#+begin_src bash
+# Build a Debian package
+dpkg-buildpackage -us -uc -b
+
+# Install a .deb
+dpkg -i package.deb
+
+# Check package contents
+dpkg -c package.deb
+
+# Check installed files
+dpkg -L packagename
+
+# qmail service control
+qmailctl start|stop|stat|reload|cdb
+
+# DKIM key generation
+dkim-newkey -d domain.tld -t rsa -b 2048 default
+
+# SPF record check
+dig TXT domain.tld
+
+# Send test email
+swaks --to user@domain --from sender@domain --server localhost --port 587
+#+end_src
+
+** Dependency Build Order
+
+#+begin_example
+1. qmail-uids-gids (prerequisite for qmail)
+2. libsrs2 1.0.18 (prerequisite for qmail SRS patch)
+3. vpopmail (prerequisite for qmail chkuser patch — if compile-time)
+4. qmail / dsmr-qmail (the main package)
+5. daemontools (process supervision)
+6. ucspi-tcp6 (SMTP connection handling)
+7. ucspi-ssl (implicit SSL, port 465)
+8. fastforward (alias handling, required by qmail-run)
+9. surblhost (SURBL filtering — already built)
+10. qmail-run (service scripts)
+#+end_example

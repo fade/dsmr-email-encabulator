@@ -1,0 +1,376 @@
+#+TITLE: DSMR Stack Upgrade Plan — outrider.deepsky.com Legacy System
+#+DATE: 2026-04-03
+#+AUTHOR: Brian O'Reilly
+
+* Overview
+
+outrider.deepsky.com is a Debian 13 (Trixie) system running a pre-DSMR qmail
+stack assembled over many years. This document covers the package changes
+required before the new DSMR stack can be deployed there, and the upgrade
+procedure itself.
+
+The two major findings from the live system analysis that drive this plan:
+
+1. The vpopmail installation on outrider has been effectively inactive due
+   to incompatible drift between the old qmail package and vpopmail. There
+   are no active vpopmail domains or users to preserve. The admin preference
+   for the new stack is PostgreSQL, not MySQL. Our packages must be rebuilt
+   accordingly, and qmail must be rebuilt against the new vpopmail library.
+
+2. The old ~qmail-run~ package (2.0.2+nmu4) manages the running service
+   trees via symlinks from ~/etc/service/~ into ~/etc/qmail/~. Our new
+   ~dsmr-qmail-run~ package must cleanly replace it, removing the
+   ~qmail-verify~ service that the new stack does not provide and adding the
+   ~qmail-submission~ service (port 587) that it does.
+
+* Current State of outrider
+
+** Installed packages relevant to the upgrade
+
+| Package         |        Version | Disposition                     |
+|-----------------+----------------+---------------------------------|
+| qmail           |         1.06-9 | Replace with 1.06.3-2           |
+| qmail-uids-gids |         1.06-9 | Replace with 1.06.3-2           |
+| qmail-run       |     2.0.2+nmu4 | Replace with dsmr-qmail-run     |
+| libsrs2         |       1.0.11-1 | Replace with 1.0.18-1           |
+| daemontools     |      1:0.76-14 | Keep (system package)           |
+| daemontools-run |      1:0.76-14 | Keep (system package)           |
+| ucspi-tcp       |      1:0.88-13 | Keep or replace with ucspi-tcp6 |
+| fastforward     |      1:0.51-10 | Keep (system package)           |
+| svtools         |          0.6-6 | Keep (system package)           |
+| vpopmail        | (source-built) | Replace with 5.6.13-1           |
+
+New packages being added: ~fehqlibs-dev~, ~ucspi-ssl~, ~dovecot-vpopmail~,
+~dsmr-email-encabulator~.
+
+** Service layout (live)
+
+#+BEGIN_SRC
+/etc/service/qmail-send    -> /etc/qmail/qmail-send      (owned by qmail-run)
+/etc/service/qmail-smtpd   -> /etc/qmail/qmail-smtpd     (owned by qmail-run)
+/etc/service/qmail-verify  -> /etc/qmail/qmail-verify     (owned by qmail-run)
+#+END_SRC
+
+~daemontools-run.service~ is enabled and active; ~svscanboot /etc/service/~
+is running as PID 712 under systemd. The ~daemontools.service~ unit installed
+by the old ~qmail-run~ package is present but disabled — the system correctly
+uses the Debian ~daemontools-run~ package's unit instead.
+
+** DKIM and TLS state
+
+- ~/usr/sbin/qmail-dkim~ binary exists (from qmail 1.06-9 package) but is
+  not wired into any run script.
+- No DKIM keys exist anywhere on the system.
+- Let's Encrypt certificates are present at
+  ~/etc/letsencrypt.31122313/live/deepsky.com/~ but are not connected to
+  qmail. No ~CERTFILE~ is exported in any run script; qmail runs without TLS.
+- ~spfbehavior~ is set to 3 in the control file but the run script overrides
+  it to 1. The run script wins; the control file value is ignored.
+
+** vpopmail state
+
+The source-built vpopmail at ~/home/vpopmail~ has been effectively inactive.
+Drift between the old qmail package and the vpopmail build caused
+incompatibility; the admin suspended vpopmail use. ~vpopmaild~ is not running
+and there is no supervise service for it. There are no active virtual domains
+or user accounts to preserve. The preference for the new stack is PostgreSQL.
+
+* Required Package Changes
+
+** PHASE 1 — Rebuild vpopmail with PostgreSQL backend
+
+*** 1a. ~dsmr-vpopmail~ — change auth module and build dependencies
+
+In ~debian/rules~, change the configure flag:
+#+BEGIN_SRC diff
+-  --enable-auth-module=mysql \
++  --enable-auth-module=pgsql \
+#+END_SRC
+
+In ~debian/control~, update Build-Depends and package metadata:
+#+BEGIN_SRC diff
+- Build-Depends: debhelper-compat (= 13), autoconf, automake, libtool,
+-  default-libmysqlclient-dev
++ Build-Depends: debhelper-compat (= 13), autoconf, automake, libtool,
++  libpq-dev
+#+END_SRC
+
+Update the ~Recommends~ line and Description in ~debian/control~:
+#+BEGIN_SRC diff
+- Recommends: default-mysql-server | mariadb-server
+- Description: virtual domain and user management for qmail (MySQL backend)
+-  ...
+-  This build uses MySQL/MariaDB for authentication and user storage.
++ Recommends: postgresql
++ Description: virtual domain and user management for qmail (PostgreSQL backend)
++  ...
++  This build uses PostgreSQL for authentication and user storage.
+#+END_SRC
+
+Bump the package version in ~debian/changelog~.
+
+*** 1b. ~dsmr-vpopmail~ — rewrite postinst for PostgreSQL
+
+Replace the ~setup_mysql()~ function with ~setup_pgsql()~:
+
+- The vpopmail PostgreSQL config file is ~/home/vpopmail/etc/vpopmail.pgsql~
+  (format: ~host|port|database|user|password~).
+- Use ~su -c "psql ..."  postgres~ (Unix socket, no password needed on Debian
+  for the postgres superuser).
+- Create role ~vpopmail~ and database ~vpopmail~ if they do not already exist.
+- Write the config file as root:vchkpw, mode 640.
+- If PostgreSQL is not running or the setup fails, print clear manual
+  instructions and exit 0 (non-fatal — the admin can complete setup before
+  starting services).
+
+Add detection of an existing source-built vpopmail installation:
+
+#+BEGIN_SRC sh
+if [ -d "$VPOPMAIL_HOME/bin" ] && [ -f "$VPOPMAIL_HOME/bin/vchkpw" ]; then
+    # Determine the auth module of the installed binary.
+    # A pgsql build links against libpq; a mysql build against libmysqlclient.
+    # A cdb build has neither — it is statically linked.
+    if ldd "$VPOPMAIL_HOME/bin/vchkpw" 2>/dev/null | grep -q libmysql; then
+        echo "WARNING: existing vchkpw is MySQL-linked. Replacing with PostgreSQL build." >&2
+    fi
+    # In all cases, preserve domain data and etc/ config files.
+    # Only binaries in bin/ and libraries in lib/ are replaced by the package.
+fi
+#+END_SRC
+
+Preserve on upgrade (do not overwrite if already present):
+- ~/home/vpopmail/etc/vlimits.default~
+- ~/home/vpopmail/etc/tcp.smtp~ and ~tcp.smtp.cdb~
+- ~/home/vpopmail/etc/password_strength.conf~
+- ~/home/vpopmail/etc/open-smtp~
+
+*** 1c. Rebuild ~dsmr-qmail~ against new vpopmail-dev
+
+The qmail chkuser patch links statically against ~libvpopmail.a~. After
+rebuilding and installing the new ~vpopmail~ and ~vpopmail-dev~ packages on
+the build VM, ~dsmr-qmail~ must be rebuilt. The rebuilt qmail binary will
+link against the PostgreSQL-backed library. Bump the Debian revision.
+
+Build order on the VM after Phase 1 package changes:
+#+BEGIN_SRC
+fehqlibs-dev → libsrs2/libsrs2-dev → ucspi-ssl
+→ qmail-uids-gids → vpopmail/vpopmail-dev (PostgreSQL build)
+→ qmail/qmail-uids-gids → dovecot-vpopmail → dsmr-email-encabulator
+#+END_SRC
+
+** PHASE 2 — Create ~dsmr-qmail-run~ package
+
+A new source package providing the runtime service configuration that was
+previously split between the upstream ~qmail-run~ package and an informal
+postinst in ~dsmr-qmail~.
+
+*** Control file
+
+#+BEGIN_SRC
+Package: dsmr-qmail-run
+Architecture: all
+Depends: qmail (>= 1.06.3), daemontools-run, vpopmail (>= 5.6.13),
+ ucspi-tcp6 | ucspi-tcp
+Conflicts: qmail-run
+Replaces: qmail-run
+Description: runtime service configuration for DSMR qmail stack
+ Provides supervised service trees for qmail-send, qmail-smtpd (port 25),
+ and qmail-submission (port 587), the qmailctl management script, and
+ systemd integration via daemontools-run. Replaces the upstream qmail-run
+ package.
+#+END_SRC
+
+*** Package contents
+
+Service run scripts installed as package files under ~/etc/qmail/~:
+
+#+BEGIN_SRC
+/etc/qmail/qmail-send/run
+/etc/qmail/qmail-send/log/run
+/etc/qmail/qmail-smtpd/run
+/etc/qmail/qmail-smtpd/log/run
+/etc/qmail/qmail-submission/run
+/etc/qmail/qmail-submission/log/run
+/usr/bin/qmailctl
+#+END_SRC
+
+The symlinks in ~/etc/service/~ are created by the postinst, not shipped as
+package files (they are managed by ~daemontools-run~'s ~/etc/service/~
+directory).
+
+*** postinst actions
+
+1. Stop ~qmail-verify~ cleanly if its supervise socket exists:
+   ~svc -d /etc/service/qmail-verify 2>/dev/null || true~
+2. Remove the ~/etc/service/qmail-verify~ symlink.
+3. Create or update symlinks:
+   #+BEGIN_SRC
+   /etc/service/qmail-send       -> /etc/qmail/qmail-send
+   /etc/service/qmail-smtpd      -> /etc/qmail/qmail-smtpd
+   /etc/service/qmail-submission  -> /etc/qmail/qmail-submission
+   #+END_SRC
+4. ~systemctl enable --now daemontools-run~ (idempotent).
+5. If supervise is already running (upgrade path), send SIGTERM to reload
+   the run scripts: ~svc -t /etc/service/qmail-send /etc/service/qmail-smtpd~
+6. Print DKIM key location and DNS record (if keys already exist from qmail
+   postinst). Print SPF record template.
+
+*** prerm actions
+
+~svc -d /etc/service/qmail-send /etc/service/qmail-smtpd /etc/service/qmail-submission 2>/dev/null || true~
+
+*** qmailctl
+
+Updated to manage: ~qmail-send~, ~qmail-smtpd~, ~qmail-submission~.
+Drops: ~qmail-verify~ (not provided by this stack).
+Conforms to the service paths used by this package.
+
+** PHASE 3 — Update ~dsmr-qmail~ postinst
+
+Remove the block that conditionally copies supervise service trees to
+~/etc/service/~. That responsibility now belongs entirely to
+~dsmr-qmail-run~. The qmail package installs run script templates to
+~/usr/lib/qmail/supervise/~ as static documentation; the runtime package
+wires them up.
+
+Keep and improve:
+- DKIM key generation under ~/etc/qmail/domainkeys/~ (already implemented).
+- After key generation, print the DKIM TXT record that must be added to DNS:
+  #+BEGIN_SRC
+  ============================================================
+  DKIM DNS record — add to your zone before starting services:
+
+  default._domainkey.<domain>. IN TXT "v=DKIM1; k=rsa; p=<pubkey>"
+
+  The public key is also saved to:
+    /etc/qmail/domainkeys/<domain>:default.pub
+  ============================================================
+  #+END_SRC
+- TLS: detect Let's Encrypt certificate at
+  ~/etc/letsencrypt/live/$(cat /etc/qmail/me)/fullchain.pem~ and, if found
+  and ~/etc/qmail/servercert.pem~ does not yet exist, create the combined
+  cert+key file that qmail-smtpd expects. Fall back to the self-signed cert
+  already generated by the postinst.
+
+Fix the ~spfbehavior~ inconsistency: the ~qmail-smtpd/run~ script should
+read ~$QMAILDIR/control/spfbehavior~ rather than hardcoding a value. The
+control file is authoritative.
+
+** PHASE 4 — Update ~dsmr-email-encabulator~ metapackage
+
+Add ~dsmr-qmail-run~ to the ~Depends~ line. This ensures the full runtime
+stack is pulled in by a single ~apt install dsmr-email-encabulator~.
+
+Bump the version and add a changelog entry.
+
+* Upgrade Procedure for outrider.deepsky.com
+
+** Pre-upgrade checklist
+
+- [ ] Confirm PostgreSQL is installed: ~dpkg -l postgresql~. If not:
+      ~apt install postgresql~
+- [ ] Confirm disk space: ~df -h /var /home~ — the new stack adds several
+      packages; allow 200 MB headroom.
+- [ ] Back up ~/etc/qmail/~ control files:
+      ~tar czf /root/qmail-control-backup-$(date +%F).tar.gz /etc/qmail/~
+- [ ] Note current DNS records for all hosted domains (for SPF/DKIM addition).
+- [ ] Confirm the outgoing mail queue is clear or acceptable to delay:
+      ~qmail-qstat~
+
+** Step 1 — Install PostgreSQL if not present
+
+#+BEGIN_SRC sh
+apt install postgresql
+systemctl enable --now postgresql
+#+END_SRC
+
+** Step 2 — Install the DSMR stack
+
+#+BEGIN_SRC sh
+apt install dsmr-email-encabulator
+#+END_SRC
+
+This will:
+- Remove ~qmail-run~ 2.0.2+nmu4 (Conflicts/Replaces)
+- Upgrade ~qmail~ 1.06-9 → 1.06.3-2
+- Upgrade ~qmail-uids-gids~ 1.06-9 → 1.06.3-2
+- Upgrade ~libsrs2~ 1.0.11-1 → 1.0.18-1
+- Install ~dsmr-qmail-run~ (new)
+- Install ~vpopmail~ 5.6.13-1 with PostgreSQL backend
+- Install ~fehqlibs-dev~, ~ucspi-ssl~, ~ucspi-tcp6~, ~dovecot-vpopmail~
+
+During the run, postinst scripts will:
+- Generate DKIM keys for the primary domain and print the DNS record
+- Create and configure the ~vpopmail~ PostgreSQL database
+- Wire up service trees; remove the ~qmail-verify~ service
+- Print SPF record template
+- Detect and link Let's Encrypt certificates if available
+
+** Step 3 — Add DNS records
+
+Add to the zone for each hosted domain before starting services:
+
+*DKIM* (printed by the qmail postinst — copy the exact record):
+#+BEGIN_SRC
+default._domainkey.<domain>. IN TXT "v=DKIM1; k=rsa; p=<pubkey>"
+#+END_SRC
+
+*SPF* (adjust to match the server's outbound IP):
+#+BEGIN_SRC
+<domain>. IN TXT "v=spf1 mx ~all"
+#+END_SRC
+
+Allow DNS propagation before starting the SMTP listeners (use ~dig TXT~ to
+confirm).
+
+** Step 4 — Start and verify
+
+#+BEGIN_SRC sh
+qmailctl start
+qmailctl stat
+#+END_SRC
+
+Expected: ~qmail-send~, ~qmail-smtpd~, and ~qmail-submission~ all show as
+running with an uptime. If any service fails immediately, inspect the log:
+#+BEGIN_SRC sh
+tail /var/log/qmail/smtpd/current
+tail /var/log/qmail/send/current
+#+END_SRC
+
+** Step 5 — Configure vpopmail domains
+
+With vpopmail running, recreate the virtual domains that were previously
+active. The admin should have a record of these from the old system. For each
+domain:
+
+#+BEGIN_SRC sh
+vadddomain <domain>
+vadduser postmaster@<domain>
+#+END_SRC
+
+Verify in PostgreSQL:
+#+BEGIN_SRC sh
+psql -U vpopmail vpopmail -c "SELECT domain FROM dir_control;"
+#+END_SRC
+
+** Step 6 — Run the verification suite
+
+#+BEGIN_SRC sh
+dsmr-verify
+#+END_SRC
+
+Expected: 37/37 PASS. Investigate any failures before considering the
+migration complete.
+
+* Summary of Changes by Package
+
+| Package                | Change                                              |
+|------------------------+-----------------------------------------------------|
+| ~dsmr-vpopmail~          | Switch to PostgreSQL backend; rewrite postinst      |
+| ~dsmr-vpopmail~          | Detect existing source install; preserve etc/ files |
+| ~dsmr-qmail~             | Rebuild against new vpopmail-dev (pgsql-linked)     |
+| ~dsmr-qmail~             | Remove service-tree copy from postinst              |
+| ~dsmr-qmail~             | Improve DKIM DNS record output; fix spfbehavior     |
+| ~dsmr-qmail~             | Wire Let's Encrypt certs if available               |
+| ~dsmr-qmail-run~         | NEW — owns service trees, qmailctl, systemd wiring  |
+| ~dsmr-email-encabulator~ | Add ~dsmr-qmail-run~ to Depends; bump version         |

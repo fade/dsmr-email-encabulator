@@ -1,0 +1,10 @@
+Document: dsmr-email-encabulator
+Title: DSMR Mail Stack Manual
+Author: Brian O'Reilly
+Abstract: Reference manual for the DSMR qmail/vpopmail/dovecot mail stack:
+ architecture, configuration, and operation of the full (encabulator) profile.
+Section: System/Administration
+
+Format: info
+Index: /usr/share/info/dsmr-email-encabulator.info.gz
+Files: /usr/share/info/dsmr-email-encabulator.info.gz

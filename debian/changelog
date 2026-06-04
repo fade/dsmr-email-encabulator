@@ -1,3 +1,16 @@
+dsmr-email-encabulator (1.0-16) trixie; urgency=medium
+
+  * Demote dsmr-localfirst from Depends to Recommends.  System-first routing is
+    needed only by hosts serving hybrid system/vpopmail domains, and the gate is
+    now opt-in (control/localfirst), so a standard vpopmail MTA can install the
+    stack without it.  The Recommends floor (>= 1.0-4) ensures any host that does
+    pull it in gets the build that validates qmail extension addressing.
+  * Raise the dsmr-qmail-run floor to >= 1.0-12 so a fresh install cannot land
+    the combination of the old presence-triggered recipient gate with
+    dsmr-localfirst, which silently replaced chkuser on non-hybrid hosts.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Thu, 04 Jun 2026 18:00:00 +0000
+
 dsmr-email-encabulator (1.0-15) trixie; urgency=low
 
   * Pull in dsmr-localfirst (>= 1.0-1) for system-first recipient routing on

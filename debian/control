@@ -15,14 +15,14 @@ Depends: ${misc:Depends},
  qmail (>= 1.06.3),
  libsrs2 (>= 1.0.18),
  vpopmail (>= 5.6.13),
- dsmr-qmail-run (>= 1.0-10),
+ dsmr-qmail-run (>= 1.0-12),
  dsmr-checkpassword-dovecot (>= 1.0-2),
- dsmr-localfirst (>= 1.0-1),
  dsmr-email-admin (>= 1.0-1),
  dovecot-core,
  dovecot-imapd,
  dovecot-pgsql,
  dovecot-vpopmail (>= 2.4.1)
+Recommends: dsmr-localfirst (>= 1.0-4)
 Description: DSMR qmail/vpopmail/dovecot mail stack -- metapackage
  One-shot installation target for the complete DSMR email infrastructure.
  Installing this package pulls the entire qmail/vpopmail/dovecot stack in
@@ -32,5 +32,10 @@ Description: DSMR qmail/vpopmail/dovecot mail stack -- metapackage
   - DEVLOG.org: development log and Sagredo vs. DSMR configuration comparison
   - README.dsmr: per-package runtime documentation for each component
   - dsmr-verify: end-to-end stack validation script
+ .
+ System-first recipient routing (dsmr-localfirst) is recommended rather than
+ required: it is needed only by hosts serving hybrid system/vpopmail domains and
+ is inert until enabled with control/localfirst, so a standard vpopmail MTA can
+ omit it.
  .
  After installation, run dsmr-verify to confirm the stack is operational.

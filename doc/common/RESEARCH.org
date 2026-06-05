@@ -415,8 +415,8 @@ virsh -c qemu:///system list --all
 
 - VM name: ~debian13~
 - State: running (ID 4)
-- IP address: ~192.168.122.184~
-- SSH: ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~
+- IP address: ~192.0.2.10~
+- SSH: ~ssh -i ~/.ssh/id_rsa fade@192.0.2.10~
 - SSH port: 22 (confirmed open)
 - Debian version: 13 (Trixie) — kernel 6.12.74+deb13+1-amd64
 - Shared filesystem: virtiofs, host ~/home/fade/SourceCode~ → VM ~/home/fade/SourceCode~
@@ -464,8 +464,8 @@ OpenSSL: 3.5.1 (libssl3t64)
 ** VM Details
 
 - VM name: ~debian13~ (libvirt system instance: ~qemu:///system~)
-- VM IP: ~192.168.122.184~
-- SSH access: ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~
+- VM IP: ~192.0.2.10~
+- SSH access: ~ssh -i ~/.ssh/id_rsa fade@192.0.2.10~
 - Debian version: 13 (Trixie), kernel 6.12.74+deb13+1-amd64
 - Shared path: ~/home/fade/SourceCode~ (virtiofs, same path on host and in VM)
 - Packages available via apt (no custom packaging needed):

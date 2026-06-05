@@ -374,7 +374,7 @@ separate ~rc~ script.
 
 Create a signed apt repository rooted at
 ~/home/fade/SourceCode/debian/packages/~, served statically at
-~https://deepsky.com/packages/~, containing the DSMR package set for Debian 13
+~https://example.com/packages/~, containing the DSMR package set for Debian 13
 Trixie (~amd64~ + ~all~).
 
 ** Current Package Inventory
@@ -402,7 +402,7 @@ An ed25519 key is already present and valid:
 
 #+BEGIN_SRC
 Fingerprint: 362283D116D54D0A5A492D1F28E170CFBEF2759D
-UID:         Brian O'Reilly <fade-gpg@deepsky.com>
+UID:         Brian O'Reilly <fade-gpg@example.com>
 Type:        ed25519 [SC] + cv25519 [E]
 Created:     2024-03-19    Expires: 2027-03-19
 #+END_SRC
@@ -414,7 +414,7 @@ for unattended signing; see note at the end of this entry.
 ** Repository Layout
 
 #+BEGIN_SRC
-packages/                              <- web root (https://deepsky.com/packages/)
+packages/                              <- web root (https://example.com/packages/)
 |-- dsmr-archive-keyring.gpg           <- binary public key for clients
 |-- dsmr-archive-keyring.asc           <- ASCII-armored public key
 |-- dists/
@@ -551,18 +551,18 @@ which scopes the key to this repository only.
 
 #+BEGIN_SRC sh
 # 1. Download the signing key (binary/dearmored form required by signed-by)
-sudo curl -fsSL https://deepsky.com/packages/dsmr-archive-keyring.gpg \
+sudo curl -fsSL https://example.com/packages/dsmr-archive-keyring.gpg \
     -o /usr/share/keyrings/dsmr-archive-keyring.gpg
 
 # 2a. One-line format (.list)
 echo "deb [arch=amd64 signed-by=/usr/share/keyrings/dsmr-archive-keyring.gpg] \
-https://deepsky.com/packages trixie main" \
+https://example.com/packages trixie main" \
     | sudo tee /etc/apt/sources.list.d/dsmr.list
 
 # 2b. deb822 format (.sources) — preferred for Debian 13 Trixie
 cat << 'EOF' | sudo tee /etc/apt/sources.list.d/dsmr.sources
 Types: deb
-URIs: https://deepsky.com/packages/
+URIs: https://example.com/packages/
 Suites: trixie
 Components: main
 Signed-By: /usr/share/keyrings/dsmr-archive-keyring.gpg
@@ -614,24 +614,24 @@ Alias /packages /var/www/html/packages
    #+BEGIN_SRC sh
    rsync -av --delete \
      --exclude='conf/' --exclude='db/' --exclude='incoming/' \
-     packages/ user@deepsky.com:/var/www/html/packages/
+     packages/ user@example.com:/var/www/html/packages/
    #+END_SRC
-4. Verify: ~curl -sI https://deepsky.com/packages/dists/trixie/InRelease~
+4. Verify: ~curl -sI https://example.com/packages/dists/trixie/InRelease~
 
 For future package rebuilds: ~reprepro includedeb trixie <new.deb>~ then re-rsync.
 
 ** Note: Dedicated Repository Signing Key
 
-Using the personal ~fade-gpg@deepsky.com~ key works but couples the package
+Using the personal ~fade-gpg@example.com~ key works but couples the package
 signing credential to a personal identity key. A dedicated key is better:
 
 #+BEGIN_SRC sh
 gpg --batch --passphrase '' --quick-gen-key \
-    "DSMR Package Repository <packages@deepsky.com>" \
+    "DSMR Package Repository <packages@example.com>" \
     rsa4096 sign 0
 
 # Get the new fingerprint
-gpg --list-secret-keys --keyid-format=long "packages@deepsky.com"
+gpg --list-secret-keys --keyid-format=long "packages@example.com"
 
 # Update conf/distributions SignWith: to the new fingerprint
 # Re-run: reprepro -b packages export   (re-signs everything)
@@ -649,19 +649,19 @@ Generated a dedicated passphrase-free rsa4096 signing key as planned:
 
 #+BEGIN_SRC sh
 gpg --batch --passphrase '' --quick-gen-key \
-    "DSMR Package Repository <packages@deepsky.com>" \
+    "DSMR Package Repository <packages@example.com>" \
     rsa4096 sign 0
 #+END_SRC
 
 #+BEGIN_SRC
 Fingerprint: 252ED8660F84E21B0E958D7ECAE997E9F4C0854A
-UID:         DSMR Package Repository <packages@deepsky.com>
+UID:         DSMR Package Repository <packages@example.com>
 Type:        rsa4096 [SC]
 Created:     2026-03-22    Expires: never
 #+END_SRC
 
 Updated ~conf/distributions~ ~SignWith:~ field to the new fingerprint,
-replacing the personal ~fade-gpg@deepsky.com~ ed25519 key from the design
+replacing the personal ~fade-gpg@example.com~ ed25519 key from the design
 entry.
 
 ** reprepro Initialization
@@ -709,9 +709,9 @@ Public keyring files exported alongside the repository:
 - ~packages/dsmr-archive-keyring.gpg~ — binary (required by ~signed-by=~)
 - ~packages/dsmr-archive-keyring.asc~ — ASCII-armored (human-readable)
 
-** Apache Configuration (outrider.deepsky.com)
+** Apache Configuration (tatooine.example.com)
 
-Deployed to ~/etc/apache2/conf-available/dsmr-packages.conf~ on outrider.deepsky.com
+Deployed to ~/etc/apache2/conf-available/dsmr-packages.conf~ on tatooine.example.com
 (Debian 13 Trixie, same SSH key as the build VM):
 
 #+BEGIN_SRC apache
@@ -737,7 +737,7 @@ sudo systemctl reload apache2
 rsync -av --delete \
   --exclude='conf/' --exclude='db/' \
   /home/fade/SourceCode/debian/packages/ \
-  root@outrider.deepsky.com:/var/www/html/packages/
+  root@tatooine.example.com:/var/www/html/packages/
 #+END_SRC
 
 ** Verification Results
@@ -758,7 +758,7 @@ Client setup verified with deb822 format (preferred for Trixie):
 
 #+BEGIN_SRC
 Types: deb
-URIs: https://deepsky.com/packages/
+URIs: https://example.com/packages/
 Suites: trixie
 Components: main
 Signed-By: /usr/share/keyrings/dsmr-archive-keyring.gpg
@@ -777,7 +777,7 @@ reprepro -b /home/fade/SourceCode/debian/packages includedeb trixie <new.deb>
 rsync -av --delete \
   --exclude='conf/' --exclude='db/' \
   /home/fade/SourceCode/debian/packages/ \
-  root@outrider.deepsky.com:/var/www/html/packages/
+  root@tatooine.example.com:/var/www/html/packages/
 #+END_SRC
 
 * 2026-03-22 — Metapackage, Bug Fix, Clean Rebuild, and Current System State
@@ -867,7 +867,7 @@ from the repository to verify the full installation path:
 4. Removed all residual directories.
 5. Configured apt with the DSMR repository (~deb822~ format, ~signed-by=~).
 6. ~sudo apt install dsmr-email-encabulator~ — pulled all 11 packages
-   from ~https://deepsky.com/packages/~.
+   from ~https://example.com/packages/~.
 7. Set up test environment: ~vadddomain example.com~, ~vadduser test@example.com~,
    system user ~marvin~ with Maildir and ~system-passwd~ entry.
 8. Ran ~dsmr-verify~: *37/37 PASS*.
@@ -930,10 +930,10 @@ Build order and source locations:
 
 ** Current Package Repository State
 
-Repository: ~https://deepsky.com/packages/~
-Server: ~outrider.deepsky.com~ (Apache, Debian 13 Trixie)
+Repository: ~https://example.com/packages/~
+Server: ~tatooine.example.com~ (Apache, Debian 13 Trixie)
 Signing key: ~252ED8660F84E21B0E958D7ECAE997E9F4C0854A~
-             (DSMR Package Repository <packages@deepsky.com>, rsa4096, no expiry)
+             (DSMR Package Repository <packages@example.com>, rsa4096, no expiry)
 Managed by: ~reprepro~, basedir ~/home/fade/SourceCode/debian/packages/~
 
 | Package                  |   Version | Arch  | Notes                            |
@@ -953,13 +953,13 @@ Managed by: ~reprepro~, basedir ~/home/fade/SourceCode/debian/packages/~
 
 #+BEGIN_SRC sh
 # Download the signing key
-sudo curl -fsSL https://deepsky.com/packages/dsmr-archive-keyring.gpg \
+sudo curl -fsSL https://example.com/packages/dsmr-archive-keyring.gpg \
     -o /usr/share/keyrings/dsmr-archive-keyring.gpg
 
 # Add the repository (deb822 format, preferred for Debian 13 Trixie)
 sudo tee /etc/apt/sources.list.d/dsmr.sources <<'EOF'
 Types: deb
-URIs: https://deepsky.com/packages/
+URIs: https://example.com/packages/
 Suites: trixie
 Components: main
 Signed-By: /usr/share/keyrings/dsmr-archive-keyring.gpg
@@ -977,7 +977,7 @@ After installation, run ~dsmr-verify~ to confirm the stack is operational.
 #+BEGIN_SRC sh
 # 1. Edit source, bump debian/changelog
 # 2. Build on the VM
-ssh -i ~/.ssh/id_rsa fade@192.168.122.184 \
+ssh -i ~/.ssh/id_rsa fade@192.0.2.10 \
   "cd /path/to/source && dpkg-buildpackage -us -uc -b"
 
 # 3. Update repository (remove old, add new)
@@ -988,6 +988,6 @@ reprepro -b /home/fade/SourceCode/debian/packages includedeb trixie <new.deb>
 rsync -av --delete -e "ssh -i ~/.ssh/id_rsa" \
   --exclude='conf/' --exclude='db/' \
   /home/fade/SourceCode/debian/packages/ \
-  root@outrider.deepsky.com:/var/www/html/packages/
+  root@tatooine.example.com:/var/www/html/packages/
 #+END_SRC
 

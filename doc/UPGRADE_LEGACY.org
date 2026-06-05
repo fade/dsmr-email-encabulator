@@ -1,17 +1,17 @@
-#+TITLE: DSMR Stack Upgrade Plan — outrider.deepsky.com Legacy System
+#+TITLE: DSMR Stack Upgrade Plan — tatooine.example.com Legacy System
 #+DATE: 2026-04-03
 #+AUTHOR: Brian O'Reilly
 
 * Overview
 
-outrider.deepsky.com is a Debian 13 (Trixie) system running a pre-DSMR qmail
+tatooine.example.com is a Debian 13 (Trixie) system running a pre-DSMR qmail
 stack assembled over many years. This document covers the package changes
 required before the new DSMR stack can be deployed there, and the upgrade
 procedure itself.
 
 The two major findings from the live system analysis that drive this plan:
 
-1. The vpopmail installation on outrider has been effectively inactive due
+1. The vpopmail installation on tatooine has been effectively inactive due
    to incompatible drift between the old qmail package and vpopmail. There
    are no active vpopmail domains or users to preserve. The admin preference
    for the new stack is PostgreSQL, not MySQL. Our packages must be rebuilt
@@ -23,7 +23,7 @@ The two major findings from the live system analysis that drive this plan:
    ~qmail-verify~ service that the new stack does not provide and adding the
    ~qmail-submission~ service (port 587) that it does.
 
-* Current State of outrider
+* Current State of tatooine
 
 ** Installed packages relevant to the upgrade
 
@@ -62,7 +62,7 @@ uses the Debian ~daemontools-run~ package's unit instead.
   not wired into any run script.
 - No DKIM keys exist anywhere on the system.
 - Let's Encrypt certificates are present at
-  ~/etc/letsencrypt.31122313/live/deepsky.com/~ but are not connected to
+  ~/etc/letsencrypt.31122313/live/example.com/~ but are not connected to
   qmail. No ~CERTFILE~ is exported in any run script; qmail runs without TLS.
 - ~spfbehavior~ is set to 3 in the control file but the run script overrides
   it to 1. The run script wins; the control file value is ignored.
@@ -263,7 +263,7 @@ stack is pulled in by a single ~apt install dsmr-email-encabulator~.
 
 Bump the version and add a changelog entry.
 
-* Upgrade Procedure for outrider.deepsky.com
+* Upgrade Procedure for tatooine.example.com
 
 ** Pre-upgrade checklist
 

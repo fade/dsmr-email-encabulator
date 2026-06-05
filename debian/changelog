@@ -1,3 +1,22 @@
+dsmr-email-encabulator (1.0-18) trixie; urgency=medium
+
+  * Style the generated HTML documentation site with a vendored, offline copy
+    of Water.css (a minimal classless stylesheet, MIT-licensed): automatic
+    light/dark, readable typography, and styled tables/code without an external
+    CDN.  The export emits semantic header/main/footer wrappers and a plain
+    table-of-contents (not a <nav>, which classless frameworks mis-style as a
+    menu bar).  Subscript/superscript export is disabled so identifiers such as
+    UPGRADE_LEGACY render verbatim.  Dropped the auto-generated sitemap.
+  * Generalize the shipped documentation for public reuse: references to the
+    maintainer's production hosts, domains, and addresses are replaced with
+    neutral example.* equivalents throughout the topic manuals and common
+    docs, so the manuals no longer describe one specific live deployment.
+  * Drop an internal operations report that was specific to a single
+    production host and not relevant to general use; it is removed from the
+    package payload and from the documentation index.
+
+ -- Brian O'Reilly <fade@deepsky.com>  Fri, 05 Jun 2026 13:30:00 -0400
+
 dsmr-email-encabulator (1.0-17) trixie; urgency=medium
 
   * Build and ship a full interlinked HTML documentation website

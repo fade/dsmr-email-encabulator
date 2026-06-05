@@ -12,7 +12,7 @@ in the Debian VM. See RESEARCH.org for full context.
 
 *Primary source to package*: ~dsmr-qmail/dsmr-qmail-1.06.3/~ (sagredo-dev patched qmail).
 *Target platform*: Debian 13 Trixie (amd64).
-*VM*: ~debian13~ at ~192.168.122.184~, SSH via ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~.
+*VM*: ~debian13~ at ~192.0.2.10~, SSH via ~ssh -i ~/.ssh/id_rsa fade@192.0.2.10~.
 *Reference guide*: https://notes.sagredo.eu/en/qmail-notes-185/configuring-qmail-83.html
 
 * Phase 0: Git-Buildpackage Repository Setup
@@ -256,7 +256,7 @@ dpkg -c build-area/qmail_*.deb
 - [ ] Confirm ~/var/lib/qmail/control -> /etc/qmail~ symlink is set up by postinst
 - [ ] Test install in VM via the shared path:
   #+begin_src bash
-  ssh -i ~/.ssh/id_rsa root@192.168.122.184 \
+  ssh -i ~/.ssh/id_rsa root@192.0.2.10 \
     'dpkg -i /home/fade/SourceCode/debian/dsmr-qmail/build-area/qmail-uids-gids_*.deb \
              /home/fade/SourceCode/debian/dsmr-qmail/build-area/qmail_*.deb'
   #+end_src
@@ -291,7 +291,7 @@ official archive. The local ~daemontools-0.76/~ source tree (version 0.76-10)
 is superseded and does not need to be built.
 
 #+begin_src bash
-ssh -i ~/.ssh/id_rsa fade@192.168.122.184 \
+ssh -i ~/.ssh/id_rsa fade@192.0.2.10 \
   'sudo apt-get install -y daemontools daemontools-run'
 #+end_src
 
@@ -406,8 +406,8 @@ groups: ~qmail~, ~nofiles~.
 VM details confirmed:
 - Name: ~debian13~ (system libvirt: ~virsh -c qemu:///system list~)
 - OS: Debian 13 Trixie (kernel 6.12.74+deb13+1-amd64)
-- IP: ~192.168.122.184~
-- SSH: ~ssh -i ~/.ssh/id_rsa fade@192.168.122.184~
+- IP: ~192.0.2.10~
+- SSH: ~ssh -i ~/.ssh/id_rsa fade@192.0.2.10~
 - virtiofs share: host ~/home/fade/SourceCode~ → VM ~/home/fade/SourceCode~ (same path)
 - State: running
 
@@ -561,7 +561,7 @@ exec /usr/bin/sslserver -H -R -l 0 -x /etc/qmail/tcp.smtp.cdb \
 # Allow relay from localhost
 127.0.0.1:allow,RELAYCLIENT=""
 # Optionally: allow known networks
-# 192.168.1.:allow,RELAYCLIENT=""
+# 192.0.2.:allow,RELAYCLIENT=""
 # Default: SMTP only, no relay
 :allow,VERIFY="DEFER"
 #+end_src

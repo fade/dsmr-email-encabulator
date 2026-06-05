@@ -31,7 +31,6 @@ The vpopmail/dovecot layer that distinguishes this profile:
 
 Migration / host operations:
 - [[file:UPGRADE_LEGACY.org][UPGRADE_LEGACY.org]]
-- [[file:OUTRIDER-UPGRADE.org][OUTRIDER-UPGRADE.org]]
 
 * Component manuals (aggregated)
 Every package's topic manual is collected into this site in dependency order —

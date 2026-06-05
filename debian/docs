@@ -3,7 +3,6 @@ doc/index.org
 doc/client-configuration.org
 doc/common
 doc/UPGRADE_LEGACY.org
-doc/OUTRIDER-UPGRADE.org
 doc/README.vpopmail.dsmr
 doc/README.dovecot-vpopmail.dsmr
 doc/README.vpasswd-postgres-convert.dsmr

@@ -167,8 +167,8 @@ required, reverting to ~last_valid_uid = 89~ tightens the security posture.
 
 *** TLS certificate paths
 
-| Setting              | Sagredo                      | DSMR                             |
-|----------------------+------------------------------+----------------------------------|
+| Setting                | Sagredo                        | DSMR                               |
+|------------------------+--------------------------------+------------------------------------|
 | ~ssl_server_cert_file~ | ~/etc/ssl/certs/dovecot.pem~   | ~/etc/dovecot/private/dovecot.pem~ |
 | ~ssl_server_key_file~  | ~/etc/ssl/private/dovecot.pem~ | ~/etc/dovecot/private/dovecot.key~ |
 
@@ -198,16 +198,16 @@ Status: *deliberate* — systemd is the correct integration point on Debian 13.
 
 *** Missing dovecot features (sagredo has; DSMR does not)
 
-| Feature                      | Sagredo                                  | DSMR |
-|------------------------------+------------------------------------------+------|
-| POP3/POP3S (ports 110/995)   | Yes (~protocols { pop3 = yes }~)           | No   |
-| Quota (count driver)         | Yes (~90-quota.conf~, warnings)            | No   |
+| Feature                      | Sagredo                                      | DSMR |
+|------------------------------+----------------------------------------------+------|
+| POP3/POP3S (ports 110/995)   | Yes (~protocols { pop3 = yes }~)             | No   |
+| Quota (count driver)         | Yes (~90-quota.conf~, warnings)              | No   |
 | Sieve / ManageSieve          | Yes (~90-sieve.conf~, ~20-managesieve.conf~) | No   |
-| FTS / Solr                   | Yes (~fts_solr~ plugin)                    | No   |
-| Postlogin script             | Yes (updates ~vpopmail.lastauth~)          | No   |
-| Per-mailbox auto-subscribe   | Yes (~15-mailboxes.conf~)                  | No   |
-| stats service unix listeners | Yes (vpopmail:vchkpw 0660)               | No   |
-| ~auth_allow_weak_schemes~      | Yes (legacy MD5 compatibility)           | No   |
+| FTS / Solr                   | Yes (~fts_solr~ plugin)                      | No   |
+| Postlogin script             | Yes (updates ~vpopmail.lastauth~)            | No   |
+| Per-mailbox auto-subscribe   | Yes (~15-mailboxes.conf~)                    | No   |
+| stats service unix listeners | Yes (vpopmail:vchkpw 0660)                   | No   |
+| ~auth_allow_weak_schemes~    | Yes (legacy MD5 compatibility)               | No   |
 
 All are optional enhancements.  None are required for basic IMAP+auth.
 
@@ -215,24 +215,24 @@ All are optional enhancements.  None are required for basic IMAP+auth.
 
 *** configure flags
 
-| Flag                       | Sagredo          | DSMR       | Notes                                   |
-|----------------------------+------------------+------------+-----------------------------------------|
+| Flag                         | Sagredo            | DSMR         | Notes                                   |
+|------------------------------+--------------------+--------------+-----------------------------------------|
 | ~--enable-qmaildir~          | ~/var/qmail/~      | ~/var/qmail~ | Same effective path (symlink)           |
-| ~--enable-auth-module=mysql~ | Yes              | Yes        | Alignment                               |
-| ~--enable-many-domains~      | Yes              | *No*         | Gap — needed for aliasdomains SQL query |
-| ~--enable-sql-aliasdomains~  | Yes              | *No*         | Gap — saves alias domains to MySQL      |
-| ~--enable-mysql-limits~      | Yes              | *No*         | Gap — stores quotas in DB               |
-| ~--enable-valias~            | Yes              | No (~=n~)    | Gap — SQL virtual aliases               |
-| ~--enable-defaultdelivery~   | Yes              | *No*         | Gap — required for Sieve via LDA        |
-| ~--disable-roaming-users~    | Yes              | Yes (~=n~)   | Alignment                               |
+| ~--enable-auth-module=mysql~ | Yes                | Yes          | Alignment                               |
+| ~--enable-many-domains~      | Yes                | *No*         | Gap — needed for aliasdomains SQL query |
+| ~--enable-sql-aliasdomains~  | Yes                | *No*         | Gap — saves alias domains to MySQL      |
+| ~--enable-mysql-limits~      | Yes                | *No*         | Gap — stores quotas in DB               |
+| ~--enable-valias~            | Yes                | No (~=n~)    | Gap — SQL virtual aliases               |
+| ~--enable-defaultdelivery~   | Yes                | *No*         | Gap — required for Sieve via LDA        |
+| ~--disable-roaming-users~    | Yes                | Yes (~=n~)   | Alignment                               |
 | ~--enable-logging~           | ~e~ (errors)       | ~y~ (yes)    | Minor difference                        |
-| ~--enable-auth-logging~      | Yes              | Yes        | Alignment                               |
-| ~--enable-qmail-ext~         | Yes              | Yes        | Alignment                               |
-| ~--disable-clear-passwd~     | Yes              | Yes (~=n~)   | Alignment                               |
-| ~--enable-sql-logging~       | Yes              | *No*         | Minor gap                               |
-| ~--enable-learn-passwords~   | Yes              | *No*         | Minor gap                               |
-| ~--enable-maildirquota~      | Yes (implied)    | Yes        | Alignment                               |
-| ~--enable-passwd=n~          | ~--disable-passwd~ | Yes        | Alignment                               |
+| ~--enable-auth-logging~      | Yes                | Yes          | Alignment                               |
+| ~--enable-qmail-ext~         | Yes                | Yes          | Alignment                               |
+| ~--disable-clear-passwd~     | Yes                | Yes (~=n~)   | Alignment                               |
+| ~--enable-sql-logging~       | Yes                | *No*         | Minor gap                               |
+| ~--enable-learn-passwords~   | Yes                | *No*         | Minor gap                               |
+| ~--enable-maildirquota~      | Yes (implied)      | Yes          | Alignment                               |
+| ~--enable-passwd=n~          | ~--disable-passwd~ | Yes          | Alignment                               |
 
 Critical gap: ~--enable-many-domains~ and ~--enable-sql-aliasdomains~ are
 prerequisites for the sagredo SQL passdb query (the LEFT JOIN on
@@ -270,18 +270,18 @@ Status: *DSMR improvement*.
 
 *** Control file values
 
-| File                | Sagredo                                        | DSMR                    | Notes                                 |                        |
-|---------------------+------------------------------------------------+-------------------------+---------------------------------------+------------------------|
-| ~concurrencyincoming~ | 200                                            | 20                      | Gap — sagredo is tuned for production |                        |
-| ~softlimit~           | 30000000 (30M)                                 | 12000000 (12M)          | Gap                                   |                        |
-| ~databytes~           | 20000000 (20M)                                 | not set                 | Gap — no max message size in DSMR     |                        |
-| ~queuelifetime~       | 272800 (3.2d)                                  | not set                 | Gap — uses qmail default (7 days)     |                        |
-| ~maxrcpt~             | 100                                            | not set                 | Gap — no recipient limit in DSMR      |                        |
-| ~brtlimit~            | 2                                              | not set                 | Gap (batch recipient limit)           |                        |
+| File                  | Sagredo                                          | DSMR                    | Notes                                 |                        |
+|-----------------------+--------------------------------------------------+-------------------------+---------------------------------------+------------------------|
+| ~concurrencyincoming~ | 200                                              | 20                      | Gap — sagredo is tuned for production |                        |
+| ~softlimit~           | 30000000 (30M)                                   | 12000000 (12M)          | Gap                                   |                        |
+| ~databytes~           | 20000000 (20M)                                   | not set                 | Gap — no max message size in DSMR     |                        |
+| ~queuelifetime~       | 272800 (3.2d)                                    | not set                 | Gap — uses qmail default (7 days)     |                        |
+| ~maxrcpt~             | 100                                              | not set                 | Gap — no recipient limit in DSMR      |                        |
+| ~brtlimit~            | 2                                                | not set                 | Gap (batch recipient limit)           |                        |
 | ~tlsserverciphers~    | ~HIGH:MEDIUM:!MD5:!RC4:!3DES:!LOW:!SSLv2:!SSLv3~ | not set                 | Gap                                   |                        |
-| ~defaultdelivery~     | ~\                                             | vdelivermail '' delete~ | not set                               | Gap — needed for Sieve |
+| ~defaultdelivery~     | ~\                                               | vdelivermail '' delete~ | not set                               | Gap — needed for Sieve |
 | ~bouncefrom~          | ~noreply~                                        | not set                 | Gap — sets bounce sender address      |                        |
-| ~spfbehavior~         | 3                                              | not set                 | Gap                                   |                        |
+| ~spfbehavior~         | 3                                                | not set                 | Gap                                   |                        |
 
 *** SMTP port 465 (SMTPS)
 
@@ -322,34 +322,34 @@ separate ~rc~ script.
 
 ** Summary Table
 
-| Area                               | Status           | Action needed                               |
-|------------------------------------+------------------+---------------------------------------------|
-| dovecot passdb SQL query           | Gap              | Add aliasdomains JOIN, quota, access flags  |
+| Area                               | Status           | Action needed                                   |
+|------------------------------------+------------------+-------------------------------------------------|
+| dovecot passdb SQL query           | Gap              | Add aliasdomains JOIN, quota, access flags      |
 | dovecot userdb prefetch            | Gap              | Add ~userdb prefetch~ block before ~userdb sql~ |
-| dovecot system-user passdb         | DSMR addition    | None — deliberate extension                 |
-| dovecot mail_inbox_path            | DSMR correct     | None                                        |
-| dovecot last_valid_uid = 0         | Deliberate       | Revert to 89 if system-user support removed |
-| dovecot mailbox_list_validate      | Gap              | Add to ~99-vpopmail-mail.conf~                |
-| dovecot maildir_broken_filename    | Gap              | Add to ~99-vpopmail-mail.conf~                |
-| dovecot quota                      | Not in scope     | Future enhancement                          |
-| dovecot Sieve / ManageSieve        | Not in scope     | Future enhancement                          |
-| dovecot POP3                       | Not in scope     | Future enhancement if needed                |
-| dovecot TLS min protocol           | DSMR stricter    | None                                        |
-| dovecot cert path                  | Minor diff       | None — both valid                           |
-| vpopmail --enable-many-domains     | Gap              | Needed for aliasdomains SQL passdb          |
-| vpopmail --enable-sql-aliasdomains | Gap              | Needed for aliasdomains SQL passdb          |
-| vpopmail --enable-mysql-limits     | Gap              | Needed for quota passdb                     |
-| vpopmail --enable-defaultdelivery  | Gap              | Needed for Sieve via LDA                    |
-| vpopmail MySQL GRANT               | DSMR better      | None                                        |
-| vpopmail credential generation     | DSMR better      | None                                        |
-| qmail concurrencyincoming          | Gap (20 vs 200)  | Increase for production                     |
-| qmail softlimit                    | Gap (12M vs 30M) | Increase for production                     |
-| qmail databytes (max msg size)     | Gap              | Add ~databytes~ control file                  |
-| qmail maxrcpt                      | Gap              | Add ~maxrcpt~ control file                    |
-| qmail tlsserverciphers             | Gap              | Add cipher list control file                |
-| qmail defaultdelivery              | Gap              | Needed for Sieve; add when Sieve added      |
-| qmail port 465 (SMTPS)             | Gap              | Low priority (deprecated port)              |
-| qmail tcp.smtp CHKUSER limit       | Gap              | Add ~CHKUSER_WRONGRCPTLIMIT~                  |
+| dovecot system-user passdb         | DSMR addition    | None — deliberate extension                     |
+| dovecot mail_inbox_path            | DSMR correct     | None                                            |
+| dovecot last_valid_uid = 0         | Deliberate       | Revert to 89 if system-user support removed     |
+| dovecot mailbox_list_validate      | Gap              | Add to ~99-vpopmail-mail.conf~                  |
+| dovecot maildir_broken_filename    | Gap              | Add to ~99-vpopmail-mail.conf~                  |
+| dovecot quota                      | Not in scope     | Future enhancement                              |
+| dovecot Sieve / ManageSieve        | Not in scope     | Future enhancement                              |
+| dovecot POP3                       | Not in scope     | Future enhancement if needed                    |
+| dovecot TLS min protocol           | DSMR stricter    | None                                            |
+| dovecot cert path                  | Minor diff       | None — both valid                               |
+| vpopmail --enable-many-domains     | Gap              | Needed for aliasdomains SQL passdb              |
+| vpopmail --enable-sql-aliasdomains | Gap              | Needed for aliasdomains SQL passdb              |
+| vpopmail --enable-mysql-limits     | Gap              | Needed for quota passdb                         |
+| vpopmail --enable-defaultdelivery  | Gap              | Needed for Sieve via LDA                        |
+| vpopmail MySQL GRANT               | DSMR better      | None                                            |
+| vpopmail credential generation     | DSMR better      | None                                            |
+| qmail concurrencyincoming          | Gap (20 vs 200)  | Increase for production                         |
+| qmail softlimit                    | Gap (12M vs 30M) | Increase for production                         |
+| qmail databytes (max msg size)     | Gap              | Add ~databytes~ control file                    |
+| qmail maxrcpt                      | Gap              | Add ~maxrcpt~ control file                      |
+| qmail tlsserverciphers             | Gap              | Add cipher list control file                    |
+| qmail defaultdelivery              | Gap              | Needed for Sieve; add when Sieve added          |
+| qmail port 465 (SMTPS)             | Gap              | Low priority (deprecated port)                  |
+| qmail tcp.smtp CHKUSER limit       | Gap              | Add ~CHKUSER_WRONGRCPTLIMIT~                    |
 
 ** Recommended Near-Term Actions
 
@@ -381,17 +381,17 @@ Trixie (~amd64~ + ~all~).
 
 Canonical .deb files to publish:
 
-| Package          |   Version | Arch  | Source location |
-|------------------+-----------+-------+-----------------|
-| ~fehqlibs-dev~     |      30-1 | amd64 | ~build-area/~     |
-| ~ucspi-ssl~        | 0.13.07-1 | amd64 | ~build-area/~     |
-| ~qmail~            |  1.06.3-1 | amd64 | ~build-area/~     |
-| ~qmail-uids-gids~  |  1.06.3-1 | all   | ~build-area/~     |
-| ~vpopmail~         |  5.6.13-1 | amd64 | ~build-area/~     |
-| ~vpopmail-dev~     |  5.6.13-1 | amd64 | ~build-area/~     |
-| ~libsrs2~          |  1.0.18-1 | amd64 | ~libsrs2/~        |
-| ~libsrs2-dev~      |  1.0.18-1 | amd64 | ~libsrs2/~        |
-| ~dovecot-vpopmail~ |   2.4.1-1 | all   | ~dsmr-dovecot/~   |
+| Package            |   Version | Arch  | Source location |
+|--------------------+-----------+-------+-----------------|
+| ~fehqlibs-dev~     |      30-1 | amd64 | ~build-area/~   |
+| ~ucspi-ssl~        | 0.13.07-1 | amd64 | ~build-area/~   |
+| ~qmail~            |  1.06.3-1 | amd64 | ~build-area/~   |
+| ~qmail-uids-gids~  |  1.06.3-1 | all   | ~build-area/~   |
+| ~vpopmail~         |  5.6.13-1 | amd64 | ~build-area/~   |
+| ~vpopmail-dev~     |  5.6.13-1 | amd64 | ~build-area/~   |
+| ~libsrs2~          |  1.0.18-1 | amd64 | ~libsrs2/~      |
+| ~libsrs2-dev~      |  1.0.18-1 | amd64 | ~libsrs2/~      |
+| ~dovecot-vpopmail~ |   2.4.1-1 | all   | ~dsmr-dovecot/~ |
 
 ~vpopmail-dbgsym~ excluded (debug symbols). Older stale builds in the
 debian/ root are also excluded.
@@ -469,14 +469,14 @@ The ~conf/~ and ~db/~ directories used by reprepro must not be web-accessible.
 
 *** Comparison
 
-|                     | ~reprepro~        | ~dpkg-scanpackages~ + ~apt-ftparchive~ | ~aptly~                     |
-|---------------------+-----------------+------------------------------------+---------------------------|
-| Pool management     | Automatic       | Manual                             | Automatic                 |
-| Metadata + signing  | One command     | Multi-step                         | One command               |
-| Per-update effort   | ~includedeb~ only | Re-run all steps                   | ~repo add~ + ~publish update~ |
-| Extra dependency    | ~reprepro~        | ~apt-utils~ (standard)               | ~aptly~                     |
-| Multiple versions   | No (by default) | No enforcement                     | Yes                       |
-| Right size for DSMR | Yes             | Yes (simpler)                      | Overkill                  |
+|                     | ~reprepro~        | ~dpkg-scanpackages~ + ~apt-ftparchive~ | ~aptly~                       |
+|---------------------+-------------------+----------------------------------------+-------------------------------|
+| Pool management     | Automatic         | Manual                                 | Automatic                     |
+| Metadata + signing  | One command       | Multi-step                             | One command                   |
+| Per-update effort   | ~includedeb~ only | Re-run all steps                       | ~repo add~ + ~publish update~ |
+| Extra dependency    | ~reprepro~        | ~apt-utils~ (standard)                 | ~aptly~                       |
+| Multiple versions   | No (by default)   | No enforcement                         | Yes                           |
+| Right size for DSMR | Yes               | Yes (simpler)                          | Overkill                      |
 
 *Recommendation: reprepro.* One command adds a package and handles everything
 else automatically. The manual dpkg-scanpackages approach is transparent but
@@ -693,8 +693,8 @@ reprepro -b $R includedeb trixie dsmr-dovecot/dovecot-vpopmail_2.4.1-1_all.deb
 
 Final repository contents (~reprepro list trixie~):
 
-| Package          |   Version | Arch  |
-|------------------+-----------+-------|
+| Package            |   Version | Arch  |
+|--------------------+-----------+-------|
 | ~dovecot-vpopmail~ |   2.4.1-1 | all   |
 | ~fehqlibs-dev~     |      30-1 | amd64 |
 | ~libsrs2~          |  1.0.18-1 | amd64 |
@@ -744,12 +744,12 @@ rsync -av --delete \
 
 End-to-end trust chain verified:
 
-| Check                                  | Result |
-|----------------------------------------+--------|
+| Check                                    | Result |
+|------------------------------------------+--------|
 | ~InRelease~ HTTP 200 (curl)              | PASS   |
 | GPG signature on ~InRelease~ (good sig)  | PASS   |
 | ~conf/~ directory returns HTTP 403       | PASS   |
-| pool .deb file HTTP 200                | PASS   |
+| pool .deb file HTTP 200                  | PASS   |
 | ~apt update~ from VM (fetches InRelease) | PASS   |
 | ~apt-cache show qmail~                   | PASS   |
 | ~apt-cache show dovecot-vpopmail~        | PASS   |
@@ -809,13 +809,13 @@ dovecot-vpopmail (>= 2.4.1)
 
 | Installed path                                                       | Contents                           |
 |----------------------------------------------------------------------+------------------------------------|
-| ~/usr/bin/dsmr-verify~                                                 | End-to-end validation script       |
-| ~/usr/share/doc/dsmr-email-encabulator/DEVLOG.org~                     | Stack comparison (Sagredo vs DSMR) |
-| ~/usr/share/doc/dsmr-email-encabulator/README.fehqlibs.dsmr~           | fehqlibs-dev runtime docs          |
-| ~/usr/share/doc/dsmr-email-encabulator/README.ucspi-ssl.dsmr~          | ucspi-ssl runtime docs             |
-| ~/usr/share/doc/dsmr-email-encabulator/README.qmail.dsmr~              | qmail runtime docs                 |
-| ~/usr/share/doc/dsmr-email-encabulator/README.vpopmail.dsmr~           | vpopmail runtime docs              |
-| ~/usr/share/doc/dsmr-email-encabulator/README.dovecot-vpopmail.dsmr~   | dovecot-vpopmail runtime docs      |
+| ~/usr/bin/dsmr-verify~                                               | End-to-end validation script       |
+| ~/usr/share/doc/dsmr-email-encabulator/DEVLOG.org~                   | Stack comparison (Sagredo vs DSMR) |
+| ~/usr/share/doc/dsmr-email-encabulator/README.fehqlibs.dsmr~         | fehqlibs-dev runtime docs          |
+| ~/usr/share/doc/dsmr-email-encabulator/README.ucspi-ssl.dsmr~        | ucspi-ssl runtime docs             |
+| ~/usr/share/doc/dsmr-email-encabulator/README.qmail.dsmr~            | qmail runtime docs                 |
+| ~/usr/share/doc/dsmr-email-encabulator/README.vpopmail.dsmr~         | vpopmail runtime docs              |
+| ~/usr/share/doc/dsmr-email-encabulator/README.dovecot-vpopmail.dsmr~ | dovecot-vpopmail runtime docs      |
 
 The ~DEVLOG.org~ included in the package contains only the Sagredo vs. DSMR
 configuration comparison (entry 1 of this file).  Repository design and
@@ -879,8 +879,8 @@ production deployment would run ~vadddomain~ for real domains.
 
 All DSMR package sources are current on GitHub:
 
-| Repository                  | Branch        | Latest commit                               |
-|-----------------------------+---------------+---------------------------------------------|
+| Repository                    | Branch          | Latest commit                               |
+|-------------------------------+-----------------+---------------------------------------------|
 | ~fade/dsmr-fehqlibs~          | ~debian/latest~ | Add README.dsmr                             |
 | ~fade/dsmr-ucspi-ssl~         | ~debian/latest~ | Add README.dsmr                             |
 | ~fade/dsmr-qmail~             | ~debian/latest~ | config-fast: remove redundant cp (1.06.3-2) |
@@ -936,8 +936,8 @@ Signing key: ~252ED8660F84E21B0E958D7ECAE997E9F4C0854A~
              (DSMR Package Repository <packages@deepsky.com>, rsa4096, no expiry)
 Managed by: ~reprepro~, basedir ~/home/fade/SourceCode/debian/packages/~
 
-| Package                |   Version | Arch  | Notes                            |
-|------------------------+-----------+-------+----------------------------------|
+| Package                  |   Version | Arch  | Notes                            |
+|--------------------------+-----------+-------+----------------------------------|
 | ~fehqlibs-dev~           |      30-1 | amd64 | Build-time dep for ucspi-ssl     |
 | ~ucspi-ssl~              | 0.13.07-1 | amd64 | TLS wrappers for qmail services  |
 | ~libsrs2~                |  1.0.18-1 | amd64 | SRS forwarding library           |

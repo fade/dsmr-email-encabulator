@@ -10,17 +10,17 @@ accounts* (virtual users).
 
 Substitute your own values for the placeholders:
 
-| Placeholder | Example          | Meaning                              |
-|-------------+------------------+--------------------------------------|
-| =MAILHOST=  | mail.example.com | the mail server FQDN                 |
-| =DOMAIN=    | example.com      | a hosted mail domain                 |
+| Placeholder | Example          | Meaning              |
+|-------------+------------------+----------------------|
+| =MAILHOST=  | mail.example.com | the mail server FQDN |
+| =DOMAIN=    | example.com      | a hosted mail domain |
 
 * Server settings at a glance
-| Purpose          | Protocol | Host       | Port | Security        | Auth          |
-|------------------+----------+------------+------+-----------------+---------------|
-| Reading (IMAP)   | IMAP     | =MAILHOST= |  993 | SSL/TLS         | password      |
-| Reading (IMAP)   | IMAP     | =MAILHOST= |  143 | STARTTLS        | password      |
-| Sending (submit) | SMTP     | =MAILHOST= |  587 | STARTTLS        | password      |
+| Purpose          | Protocol | Host       | Port | Security | Auth     |
+|------------------+----------+------------+------+----------+----------|
+| Reading (IMAP)   | IMAP     | =MAILHOST= |  993 | SSL/TLS  | password |
+| Reading (IMAP)   | IMAP     | =MAILHOST= |  143 | STARTTLS | password |
+| Sending (submit) | SMTP     | =MAILHOST= |  587 | STARTTLS | password |
 
 - *TLS is mandatory.* The server sets =ssl = required=, so a client must use
   SSL/TLS (port 993) or STARTTLS (port 143); plaintext IMAP is refused. The
@@ -36,10 +36,10 @@ Substitute your own values for the placeholders:
 * Account types and usernames
 This is the only thing that differs between the two populations:
 
-| Account type    | Username to enter    | Password                                            |
-|-----------------+----------------------+-----------------------------------------------------|
-| vpopmail (virtual) | full address =user@DOMAIN= | the mailbox password (set with =vpasswd= / vpopmail) |
-| system (shell)  | the Unix login =user= | the mail password from =/etc/dovecot/system-passwd= (set with =dsmr-smtpauth=, intentionally separate from the Unix login password) |
+| Account type       | Username to enter          | Password                                                                                                                            |
+|--------------------+----------------------------+-------------------------------------------------------------------------------------------------------------------------------------|
+| vpopmail (virtual) | full address =user@DOMAIN= | the mailbox password (set with =vpasswd= / vpopmail)                                                                                |
+| system (shell)     | the Unix login =user=      | the mail password from =/etc/dovecot/system-passwd= (set with =dsmr-smtpauth=, intentionally separate from the Unix login password) |
 
 Use the *same* username/password pair in both the incoming (IMAP) and outgoing
 (SMTP) sections of the client.
@@ -85,13 +85,13 @@ Common settings for any client:
 * Worked example (Thunderbird / generic client)
 For a vpopmail user =alice@example.com= on host =mail.example.com=:
 
-| Field                    | Incoming (IMAP)      | Outgoing (SMTP)      |
-|--------------------------+----------------------+----------------------|
-| Server                   | mail.example.com     | mail.example.com     |
-| Port                     | 993                  | 587                  |
-| Connection security      | SSL/TLS              | STARTTLS             |
-| Authentication           | Normal password      | Normal password      |
-| Username                 | alice@example.com    | alice@example.com    |
+| Field               | Incoming (IMAP)   | Outgoing (SMTP)   |
+|---------------------+-------------------+-------------------|
+| Server              | mail.example.com  | mail.example.com  |
+| Port                | 993               | 587               |
+| Connection security | SSL/TLS           | STARTTLS          |
+| Authentication      | Normal password   | Normal password   |
+| Username            | alice@example.com | alice@example.com |
 
 For a system user =alice= on the same host, use username =alice= (and the
 =system-passwd= password) in both columns; all other fields are identical.

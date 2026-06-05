@@ -31,8 +31,8 @@ maintainer (Brian O'Reilly).
 
 ** Top-Level Files
 
-| File/Directory         | Type       | Status            | Notes                                              |
-|------------------------+------------+-------------------+----------------------------------------------------|
+| File/Directory           | Type       | Status            | Notes                                              |
+|--------------------------+------------+-------------------+----------------------------------------------------|
 | ~netqmail-1.06/~         | Source dir | Built             | Plain Debian netqmail, NOT sagredo-patched         |
 | ~dsmr-qmail/~            | Source dir | Not packaged      | Contains sagredo-patched qmail (dsmr-qmail-1.06.3) |
 | ~qmail-run-2.0.2+nmu4/~  | Source dir | Built             | Service supervision scripts                        |
@@ -47,8 +47,8 @@ maintainer (Brian O'Reilly).
 
 ** Built .deb Packages
 
-| Package                             |    Version | Arch  | Size   | Notes                           |
-|-------------------------------------+------------+-------+--------+---------------------------------|
+| Package                               |    Version | Arch  | Size   | Notes                           |
+|---------------------------------------+------------+-------+--------+---------------------------------|
 | ~qmail_1.06-9_amd64.deb~              |     1.06-9 | amd64 | 810 KB | Plain netqmail — WRONG BASE     |
 | ~qmail-uids-gids_1.06-9_all.deb~      |     1.06-9 | all   | 34 KB  | Users/groups package            |
 | ~qmail-run_2.0.2+nmu4_all.deb~        | 2.0.2+nmu4 | all   | 10 KB  | Service scripts, NMU w/ systemd |
@@ -364,15 +364,15 @@ export RELAYCLIENT_NODKIMVERIFY=1
 
 ** Package Build Gaps
 
-| Item | Current State | Required | Gap |
-|---|---|---|---|
-| qmail (sagredo-patched) | NOT built | dsmr-qmail-1.06.3 packaged | Build dsmr-qmail as .deb |
-| daemontools | Not needed | v1:0.76-14 in Trixie | apt-get install daemontools |
-| libsrs2 | v1.0.11 built | v1.0.18 | Rebuild from 1.0.18 source |
-| vpopmail | Source only | Packaged .deb | Create Debian packaging |
-| ucspi-tcp6 | NOT present | v1.13.07 | Obtain source and package |
-| ucspi-ssl | NOT present | v0.13.07 | Obtain source and package |
-| fastforward | Not needed | v1:0.51-10 in Trixie | apt-get install fastforward |
+| Item                    | Current State | Required                   | Gap                         |
+|-------------------------+---------------+----------------------------+-----------------------------|
+| qmail (sagredo-patched) | NOT built     | dsmr-qmail-1.06.3 packaged | Build dsmr-qmail as .deb    |
+| daemontools             | Not needed    | v1:0.76-14 in Trixie       | apt-get install daemontools |
+| libsrs2                 | v1.0.11 built | v1.0.18                    | Rebuild from 1.0.18 source  |
+| vpopmail                | Source only   | Packaged .deb              | Create Debian packaging     |
+| ucspi-tcp6              | NOT present   | v1.13.07                   | Obtain source and package   |
+| ucspi-ssl               | NOT present   | v0.13.07                   | Obtain source and package   |
+| fastforward             | Not needed    | v1:0.51-10 in Trixie       | apt-get install fastforward |
 
 ** Packaging Issues in dsmr-qmail/debian/
 
@@ -481,22 +481,22 @@ The build artifacts use ~SOURCE_DATE_EPOCH="1716747076"~ for reproducibility.
 
 All required tools are already installed in the Debian 13 VM:
 
-| Tool                   |         Version | Purpose                                   |
-|------------------------+-----------------+-------------------------------------------|
+| Tool                       |         Version | Purpose                                   |
+|----------------------------+-----------------+-------------------------------------------|
 | ~git-buildpackage~ (~gbp~) |          0.9.38 | Core packaging workflow tool              |
-| ~pristine-tar~           |       1.50+nmu2 | Tarball reproducibility (not needed here) |
-| ~devscripts~             | 2.25.15+deb13u1 | ~dch~, ~debsign~, and other helpers           |
-| ~dh-make~                |        2.202503 | Debian packaging scaffolding              |
-| ~lintian~                |         2.122.0 | Package quality checker                   |
+| ~pristine-tar~             |       1.50+nmu2 | Tarball reproducibility (not needed here) |
+| ~devscripts~               | 2.25.15+deb13u1 | ~dch~, ~debsign~, and other helpers       |
+| ~dh-make~                  |        2.202503 | Debian packaging scaffolding              |
+| ~lintian~                  |         2.122.0 | Package quality checker                   |
 
 ** Branch Structure (DEP-14)
 
 The packaging repository uses the DEP-14 naming convention:
 
-| Branch          | Contents                                         | Maps from existing |
-|-----------------+--------------------------------------------------+--------------------|
-| ~upstream/latest~ | Unmodified sagredo-dev qmail source (no ~debian/~) | ~main~               |
-| ~debian/latest~   | Upstream + ~debian/~ packaging files               | ~fade-package~       |
+| Branch            | Contents                                           | Maps from existing |
+|-------------------+----------------------------------------------------+--------------------|
+| ~upstream/latest~ | Unmodified sagredo-dev qmail source (no ~debian/~) | ~main~             |
+| ~debian/latest~   | Upstream + ~debian/~ packaging files               | ~fade-package~     |
 
 Tags:
 - ~upstream/X.Y.Z~ — marks upstream version imports

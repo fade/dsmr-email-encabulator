@@ -364,8 +364,8 @@ migration complete.
 
 * Summary of Changes by Package
 
-| Package                | Change                                              |
-|------------------------+-----------------------------------------------------|
+| Package                  | Change                                              |
+|--------------------------+-----------------------------------------------------|
 | ~dsmr-vpopmail~          | Switch to PostgreSQL backend; rewrite postinst      |
 | ~dsmr-vpopmail~          | Detect existing source install; preserve etc/ files |
 | ~dsmr-qmail~             | Rebuild against new vpopmail-dev (pgsql-linked)     |
@@ -373,4 +373,4 @@ migration complete.
 | ~dsmr-qmail~             | Improve DKIM DNS record output; fix spfbehavior     |
 | ~dsmr-qmail~             | Wire Let's Encrypt certs if available               |
 | ~dsmr-qmail-run~         | NEW — owns service trees, qmailctl, systemd wiring  |
-| ~dsmr-email-encabulator~ | Add ~dsmr-qmail-run~ to Depends; bump version         |
+| ~dsmr-email-encabulator~ | Add ~dsmr-qmail-run~ to Depends; bump version       |

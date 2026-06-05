@@ -796,29 +796,29 @@ git push origin debian/latest upstream/latest --tags
 
 ** Key Paths
 
-| Path | Purpose |
-|---|---|
-| ~/etc/qmail/~ | qmail control files (symlinked from ~/var/lib/qmail/control/~) |
-| ~/var/lib/qmail/~ | qmail home (Debian convention; ~/var/qmail/~ in upstream) |
-| ~/var/lib/qmail/queue/~ | Mail queue |
-| ~/var/lib/qmail/bin/~ | qmail binaries |
-| ~/home/vpopmail/~ | vpopmail home |
-| ~/home/vpopmail/domains/~ | Virtual domain files |
-| ~/etc/qmail/domainkeys/~ | DKIM signing keys |
-| ~/etc/sv/~ or ~/etc/services/~ | daemontools service directories |
+| Path                           | Purpose                                                        |
+|--------------------------------+----------------------------------------------------------------|
+| ~/etc/qmail/~                  | qmail control files (symlinked from ~/var/lib/qmail/control/~) |
+| ~/var/lib/qmail/~              | qmail home (Debian convention; ~/var/qmail/~ in upstream)      |
+| ~/var/lib/qmail/queue/~        | Mail queue                                                     |
+| ~/var/lib/qmail/bin/~          | qmail binaries                                                 |
+| ~/home/vpopmail/~              | vpopmail home                                                  |
+| ~/home/vpopmail/domains/~      | Virtual domain files                                           |
+| ~/etc/qmail/domainkeys/~       | DKIM signing keys                                              |
+| ~/etc/sv/~ or ~/etc/services/~ | daemontools service directories                                |
 
 ** Key Users and Groups
 
-| User | UID | Purpose |
-|---|---|---|
-| ~qmaild~ | varies | SMTP daemon (qmail-smtpd) |
-| ~qmaill~ | varies | Logger |
-| ~qmailp~ | varies | Password checker |
-| ~qmailq~ | varies | Queue manager |
-| ~qmailr~ | varies | Remote delivery |
-| ~qmails~ | varies | Sender |
-| ~vpopmail~ | 89 | Virtual user manager |
-| ~vchkpw~ | group 89 | Virtual user auth group |
+| User       | UID      | Purpose                   |
+|------------+----------+---------------------------|
+| ~qmaild~   | varies   | SMTP daemon (qmail-smtpd) |
+| ~qmaill~   | varies   | Logger                    |
+| ~qmailp~   | varies   | Password checker          |
+| ~qmailq~   | varies   | Queue manager             |
+| ~qmailr~   | varies   | Remote delivery           |
+| ~qmails~   | varies   | Sender                    |
+| ~vpopmail~ | 89       | Virtual user manager      |
+| ~vchkpw~   | group 89 | Virtual user auth group   |
 
 ** Key Commands
 

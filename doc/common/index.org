@@ -23,12 +23,12 @@ Base-layer component notes:
 - [[file:README.fehqlibs.dsmr][README.fehqlibs.dsmr]]
 
 * Stack topics (profile-independent)
-| Topic                 | Document                              |
-|-----------------------+---------------------------------------|
-| Development log       | [[file:DEVLOG.org][DEVLOG.org]]              |
-| Research & background | [[file:RESEARCH.org][RESEARCH.org]]            |
-| Task / work tracking  | [[file:TASKS.org][TASKS.org]]                  |
-| DKIM signing          | [[file:DKIM.org][DKIM.org]]                    |
+| Topic                 | Document     |
+|-----------------------+--------------|
+| Development log       | [[file:DEVLOG.org][DEVLOG.org]]   |
+| Research & background | [[file:RESEARCH.org][RESEARCH.org]] |
+| Task / work tracking  | [[file:TASKS.org][TASKS.org]]    |
+| DKIM signing          | [[file:DKIM.org][DKIM.org]]     |
 
 * Packaging & contribution workflow
 How feature work is folded into the package repositories under the Debian git

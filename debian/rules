@@ -3,8 +3,29 @@
 	dh $@
 
 override_dh_auto_build:
+	# Umbrella reference manual (info).
 	makeinfo --no-split doc/dsmr-email-encabulator.texi \
 		-o doc/dsmr-email-encabulator.info
+	# Stage each component's topic manual from its sibling repo (best-effort:
+	# WS is the workspace dir that holds all the package wrappers).  The site
+	# still builds for whatever components are present.
+	set -e; \
+	WS=$$(d=$(CURDIR); while [ "$$d" != / ]; do \
+	    [ -d "$$d/dsmr-qmail" ] && { echo "$$d"; break; }; \
+	    d=$$(dirname "$$d"); done); \
+	for name in fehqlibs libsrs2 ucspi-ssl qmail vpopmail dovecot-vpopmail \
+	    dsmr-qmail-run dsmr-checkpassword-dovecot dsmr-localfirst; do \
+	    f=$$(ls $$WS/*/*/doc/$$name.org 2>/dev/null | head -1); \
+	    if [ -n "$$f" ]; then cp "$$f" doc/components/; echo "staged $$name"; \
+	    else echo "skip $$name (sibling repo not found)"; fi; \
+	done
+	# Build the interlinked HTML documentation site under site/.
+	emacs --batch -Q -l doc/publish.el
+
+override_dh_auto_clean:
+	rm -rf site
+	rm -f doc/sitemap.org doc/dsmr-email-encabulator.info
+	find doc/components -name '*.org' ! -name index.org -delete 2>/dev/null || true
 
 # Keep the documentation tree uncompressed so the index.org relative links
 # (to .org topics and .dsmr component notes) resolve when read under

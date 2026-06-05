@@ -1,3 +1,10 @@
+# generated documentation site (org is the source of truth)
+/site/
+doc/sitemap.org
+doc/components/*.org
+!doc/components/index.org
+*~
+
 # debhelper staging and build artifacts
 debian/dsmr-email-encabulator/
 debian/.debhelper/

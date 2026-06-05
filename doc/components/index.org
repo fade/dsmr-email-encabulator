@@ -1,0 +1,27 @@
+#+TITLE: DSMR Stack — Component Manuals
+#+AUTHOR: Brian O'Reilly
+#+OPTIONS: toc:nil num:nil
+
+Each package in the DSMR mail stack ships its own topic manual (as an =info=
+page and an HTML page). This site aggregates those manuals so the whole stack
+can be read in one place, in dependency order.
+
+The pages below are staged from each component's own =doc/<pkg>.org= source at
+build time; the canonical copy always lives with its package.
+
+* Foundation (build-time libraries)
+- [[file:fehqlibs.org][fehqlibs-dev]] — djbware C library the qmail rebuild links against
+- [[file:libsrs2.org][libsrs2]] — Sender Rewriting Scheme engine for SPF-safe forwarding
+- [[file:ucspi-ssl.org][ucspi-ssl]] — TLS-wrapping UCSPI server/client tools
+
+* Mail transport and accounts
+- [[file:qmail.org][qmail]] — the netqmail MTA rebuild (TLS/DKIM/SPF/SRS/chkuser)
+- [[file:vpopmail.org][vpopmail]] — virtual domains/users on a PostgreSQL backend
+- [[file:dovecot-vpopmail.org][dovecot-vpopmail]] — dovecot 2.4 IMAP against the vpopmail database
+
+* Service activation and policy
+- [[file:dsmr-qmail-run.org][dsmr-qmail-run]] — the supervised services and =qmailctl=
+- [[file:dsmr-checkpassword-dovecot.org][dsmr-checkpassword-dovecot]] — SMTP-AUTH bridge to dovecot's passdb chain
+- [[file:dsmr-localfirst.org][dsmr-localfirst]] — system-first recipient routing on hybrid domains
+
+Return to the [[file:../index.org][stack documentation root]].

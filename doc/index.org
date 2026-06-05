@@ -33,6 +33,12 @@ Migration / host operations:
 - [[file:UPGRADE_LEGACY.org][UPGRADE_LEGACY.org]]
 - [[file:OUTRIDER-UPGRADE.org][OUTRIDER-UPGRADE.org]]
 
+* Component manuals (aggregated)
+Every package's topic manual is collected into this site in dependency order —
+see [[file:components/index.org][components/index.org]]. Each is also available on its own as an =info=
+page (e.g. =info qmail=, =info vpopmail=) and under its package's
+=/usr/share/doc/<pkg>/=.
+
 * Per-package documentation
 Each package ships its own design and operational docs under its own
 =/usr/share/doc/<pkg>/=:

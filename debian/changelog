@@ -1,3 +1,11 @@
+dsmr-email-encabulator (1.0-19) trixie; urgency=medium
+
+  * client-configuration guide: document the per-user RELAY_AUTH.txt
+    file, and standardise on the full user@DOMAIN username for system
+    accounts (matches FORCEAUTHMAILFROM).
+
+ -- Brian O'Reilly <fade@deepsky.com>  Sat, 13 Jun 2026 12:12:25 -0400
+
 dsmr-email-encabulator (1.0-18) trixie; urgency=medium
 
   * Style the generated HTML documentation site with a vendored, offline copy

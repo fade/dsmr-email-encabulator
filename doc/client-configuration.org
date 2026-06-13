@@ -34,15 +34,37 @@ Substitute your own values for the placeholders:
   (vpopmail SQL → =/etc/dovecot/system-passwd= → PAM).
 
 * Account types and usernames
-This is the only thing that differs between the two populations:
+Both populations enter the *full email address* =user@DOMAIN= as the username;
+only the password source differs:
 
 | Account type       | Username to enter          | Password                                                                                                                            |
 |--------------------+----------------------------+-------------------------------------------------------------------------------------------------------------------------------------|
 | vpopmail (virtual) | full address =user@DOMAIN= | the mailbox password (set with =vpasswd= / vpopmail)                                                                                |
-| system (shell)     | the Unix login =user=      | the mail password from =/etc/dovecot/system-passwd= (set with =dsmr-smtpauth=, intentionally separate from the Unix login password) |
+| system (shell)     | full address =user@DOMAIN= | the mail password from =/etc/dovecot/system-passwd= (set with =dsmr-smtpauth=, intentionally separate from the Unix login password) |
 
 Use the *same* username/password pair in both the incoming (IMAP) and outgoing
 (SMTP) sections of the client.
+
+* System users: ready-made settings in =~/RELAY_AUTH.txt=
+When an administrator sets up a *system (shell) user* for authenticated mail
+with =dsmr-smtpauth= (its =add= or =passwd= command), a file named
+=RELAY_AUTH.txt= is written to that user's home directory with everything in
+this guide already filled in for the host:
+
+- the account's email address (=user@DOMAIN=),
+- the mail password just set (separate from the Unix login password),
+- the submission and IMAP servers, ports, and connection security, and
+- step-by-step setup instructions for Thunderbird and Apple Mail.
+
+The file is mode =0600= and owned by the user, so only that user (and root) can
+read it. It is rewritten whenever the mail password is changed and removed when
+the credential is revoked (=dsmr-smtpauth del=). A system user configuring a
+client can usually just open =~/RELAY_AUTH.txt= and copy the values, instead of
+substituting the placeholders below by hand.
+
+This applies to *system accounts only*. A *vpopmail (virtual) user* has no shell
+account and therefore no =RELAY_AUTH.txt=; those settings come from this guide,
+using the mailbox password set with =vpasswd=.
 
 * Reading mail (IMAP)
 Common settings for any client:
@@ -57,7 +79,7 @@ Common settings for any client:
 - Password: the mailbox password
 
 ** system account
-- Username: =user= (the Unix login name, e.g. =alice=)
+- Username: =user@DOMAIN= (the full email address, e.g. =alice@example.com=)
 - Password: the account's mail password from =/etc/dovecot/system-passwd=
 - The account must have a =system-passwd= entry with full uid/gid/home/shell
   (created by =dsmr-smtpauth=); dovecot uses the home to locate =~/Maildir=.
@@ -77,9 +99,10 @@ Common settings for any client:
 - Password: the mailbox password (same as IMAP)
 
 ** system account
-- Username: =user= (the Unix login). Some clients insist the SMTP username
-  equal the full email address; =user@DOMAIN= also works — the submission
-  bridge strips the domain before checking =system-passwd=.
+- Username: =user@DOMAIN= (the full email address). The submission service sets
+  =FORCEAUTHMAILFROM=, so the address you authenticate as must equal the =From=
+  address you send — use =user@DOMAIN= for both. (Dovecot strips the domain when
+  checking =system-passwd=, so the login still resolves to the =user= row.)
 - Password: the =system-passwd= mail password (same as IMAP)
 
 * Worked example (Thunderbird / generic client)
@@ -93,10 +116,15 @@ For a vpopmail user =alice@example.com= on host =mail.example.com=:
 | Authentication      | Normal password   | Normal password   |
 | Username            | alice@example.com | alice@example.com |
 
-For a system user =alice= on the same host, use username =alice= (and the
-=system-passwd= password) in both columns; all other fields are identical.
+For a system user =alice= on the same host, use username =alice@example.com=
+(and the =system-passwd= password) in both columns; all other fields are
+identical.
 
 * Troubleshooting
+- *Unsure of your server, port, or password (system user)* — open
+  =~/RELAY_AUTH.txt= in your home directory; it holds the current values and the
+  per-client steps. If it is missing, ask the administrator to (re-)run
+  =dsmr-smtpauth passwd <you>=.
 - *TLS / certificate warning* — expected with a self-signed
   =/etc/qmail/servercert.pem=; import or trust the certificate.
 - *IMAP login fails for a system user* — confirm the account is listed:
